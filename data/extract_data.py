@@ -379,15 +379,25 @@ def update_stock_info(conn, stock_code, df, stock_name=''):
         return
     
     cursor = conn.cursor()
-    start_date = df['date'].min().strftime('%Y-%m-%d')
-    end_date = df['date'].max().strftime('%Y-%m-%d')
-    total_records = len(df)
+    new_start_date = df['date'].min().strftime('%Y-%m-%d')
+    new_end_date = df['date'].max().strftime('%Y-%m-%d')
+    new_records = len(df)
+    
+    cursor.execute("SELECT start_date, total_records FROM stock_info WHERE stock_code = ?", (stock_code,))
+    existing = cursor.fetchone()
+    
+    if existing:
+        start_date = existing[0] if existing[0] else new_start_date
+        total_records = (existing[1] or 0) + new_records
+    else:
+        start_date = new_start_date
+        total_records = new_records
     
     cursor.execute("""
         INSERT OR REPLACE INTO stock_info 
         (stock_code, stock_name, total_records, start_date, end_date)
         VALUES (?, ?, ?, ?, ?)
-    """, (stock_code, stock_name, total_records, start_date, end_date))
+    """, (stock_code, stock_name, total_records, start_date, new_end_date))
     conn.commit()
 
 def get_sh_a_stock_list():
