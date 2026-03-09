@@ -175,6 +175,34 @@ def calculate_heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
     return ha_df
 
 
+def get_all_stock_codes() -> List[str]:
+    """
+    获取所有股票代码
+    
+    Returns:
+        股票代码列表
+    
+    Example:
+        >>> codes = get_all_stock_codes()
+        >>> print(f"共有 {len(codes)} 只股票")
+        >>> print(codes[:10])
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            SELECT DISTINCT stock_code
+            FROM stock_daily
+            ORDER BY stock_code
+        """)
+        
+        codes = [row[0] for row in cursor.fetchall()]
+        return codes
+    finally:
+        conn.close()
+
+
 def main():
     """测试函数"""
     print("=" * 70)
@@ -206,6 +234,12 @@ def main():
     ha_df = calculate_heikin_ashi(df)
     print(f"  获取到 {len(ha_df)} 条Heikin-Ashi数据")
     print(ha_df.head(10))
+    
+    # 测试5：获取所有股票代码
+    print("\n测试5：获取所有股票代码")
+    codes = get_all_stock_codes()
+    print(f"  共有 {len(codes)} 只股票")
+    print(f"  前10只股票: {codes[:10]}")
     
     print("\n" + "=" * 70)
     print("测试完成")
