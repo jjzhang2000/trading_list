@@ -128,6 +128,53 @@ def get_stock_price_in_range(stock_code: str, start_date: str, end_date: str) ->
         conn.close()
 
 
+def calculate_heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    计算Heikin-Ashi（平均K线）价格序列
+    
+    Args:
+        df: DataFrame，必须包含列：open, high, low, close
+    
+    Returns:
+        DataFrame，包含列：ha_open, ha_high, ha_low, ha_close
+    
+    计算公式：
+        HA收盘价 = (开盘价 + 最高价 + 最低价 + 收盘价) / 4
+        HA开盘价 = (前一日HA开盘价 + 前一日HA收盘价) / 2
+        HA最高价 = max(最高价, HA开盘价, HA收盘价)
+        HA最低价 = min(最低价, HA开盘价, HA收盘价)
+    
+    Example:
+        >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
+        >>> ha_df = calculate_heikin_ashi(df)
+        >>> print(ha_df.head())
+    """
+    if df.empty:
+        return pd.DataFrame()
+    
+    ha_df = pd.DataFrame()
+    
+    ha_df['ha_close'] = (df['open'] + df['high'] + df['low'] + df['close']) / 4
+    
+    ha_df['ha_open'] = 0.0
+    ha_df.loc[df.index[0], 'ha_open'] = (df.loc[df.index[0], 'open'] + df.loc[df.index[0], 'close']) / 2
+    
+    for i in range(1, len(df)):
+        ha_df.loc[df.index[i], 'ha_open'] = (ha_df.loc[df.index[i-1], 'ha_open'] + ha_df.loc[df.index[i-1], 'ha_close']) / 2
+    
+    ha_df['ha_high'] = ha_df[['ha_open', 'ha_close']].max(axis=1)
+    ha_df['ha_high'] = ha_df[['ha_high']].max(axis=1)
+    ha_df.loc[:, 'ha_high'] = pd.concat([df['high'], ha_df['ha_open'], ha_df['ha_close']], axis=1).max(axis=1)
+    
+    ha_df['ha_low'] = ha_df[['ha_open', 'ha_close']].min(axis=1)
+    ha_df.loc[:, 'ha_low'] = pd.concat([df['low'], ha_df['ha_open'], ha_df['ha_close']], axis=1).min(axis=1)
+    
+    if 'date' in df.columns:
+        ha_df['date'] = df['date']
+    
+    return ha_df
+
+
 def main():
     """测试函数"""
     print("=" * 70)
@@ -153,6 +200,12 @@ def main():
     df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
     print(f"  获取到 {len(df)} 条数据")
     print(df.head(10))
+    
+    # 测试4：计算Heikin-Ashi平均K线
+    print("\n测试4：计算600000的Heikin-Ashi平均K线")
+    ha_df = calculate_heikin_ashi(df)
+    print(f"  获取到 {len(ha_df)} 条Heikin-Ashi数据")
+    print(ha_df.head(10))
     
     print("\n" + "=" * 70)
     print("测试完成")
