@@ -418,7 +418,7 @@ class StockFilterGUI:
         根据选中的筛选器依次执行筛选，更新右侧结果列表。
         
         筛选流程：
-            1. 检查是否已加载数据
+            1. 加载数据（如未加载则从数据库读取）
             2. 获取启用的筛选器列表
             3. 在后台线程中依次执行筛选
             4. 更新右侧结果列表
@@ -427,8 +427,11 @@ class StockFilterGUI:
             return
         
         if not self.stock_list:
-            messagebox.showwarning("警告", "请先提取数据！")
-            return
+            self.stock_list = read_data.get_all_stock_codes_with_names()
+            if not self.stock_list:
+                messagebox.showwarning("警告", "数据库中没有股票数据，请先提取数据！")
+                return
+            self.update_stock_list()
         
         active_filters = [name for name, var in self.filter_vars.items() if var.get()]
         if not active_filters:
