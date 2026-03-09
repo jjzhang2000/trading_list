@@ -203,6 +203,36 @@ def get_all_stock_codes() -> List[str]:
         conn.close()
 
 
+def get_all_stock_codes_with_names() -> List[tuple]:
+    """
+    获取所有股票代码和名称
+    
+    Returns:
+        (股票代码, 股票名称) 元组列表，按股票代码升序排序
+    
+    Example:
+        >>> stocks = get_all_stock_codes_with_names()
+        >>> print(f"共有 {len(stocks)} 只股票")
+        >>> for code, name in stocks[:10]:
+        >>>     print(f"{code} - {name}")
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            SELECT DISTINCT sd.stock_code, COALESCE(si.stock_name, '') as stock_name
+            FROM stock_daily sd
+            LEFT JOIN stock_info si ON sd.stock_code = si.stock_code
+            ORDER BY sd.stock_code
+        """)
+        
+        stocks = [(row[0], row[1]) for row in cursor.fetchall()]
+        return stocks
+    finally:
+        conn.close()
+
+
 def main():
     """测试函数"""
     print("=" * 70)

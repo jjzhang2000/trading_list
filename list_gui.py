@@ -75,8 +75,8 @@ class StockFilterGUI:
     
     Attributes:
         root: Tkinter根窗口
-        stock_codes: 当前加载的所有股票代码列表
-        filtered_codes: 筛选后的股票代码列表
+        stock_list: 当前加载的所有股票列表 [(代码, 名称), ...]
+        filtered_list: 筛选后的股票列表 [(代码, 名称), ...]
         is_running: 标记是否有后台任务正在运行
         filter_vars: 筛选器开关变量的字典
         worker_thread: 当前运行的工作线程
@@ -93,8 +93,8 @@ class StockFilterGUI:
         self.root.title("股票筛选系统")
         self.root.geometry("1000x700")
         
-        self.stock_codes: List[str] = []
-        self.filtered_codes: List[str] = []
+        self.stock_list: List[tuple] = []
+        self.filtered_list: List[tuple] = []
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         
@@ -380,7 +380,7 @@ class StockFilterGUI:
                 
                 conn.close()
                 
-                self.stock_codes = read_data.get_all_stock_codes()
+                self.stock_list = read_data.get_all_stock_codes_with_names()
                 self.root.after(0, self.update_stock_list)
                 self.root.after(0, lambda: self.log_result(f"提取完成！成功 {success_count} 只股票, 共 {total_records} 条记录"))
                 self.root.after(0, lambda: messagebox.showinfo("成功", f"提取完成！\n成功: {success_count} 只股票\n共: {total_records} 条记录"))
@@ -398,16 +398,18 @@ class StockFilterGUI:
     def update_stock_list(self):
         """更新左侧股票列表显示"""
         self.stock_listbox.delete(0, tk.END)
-        for code in self.stock_codes:
-            self.stock_listbox.insert(tk.END, code)
-        self.stock_count_label.config(text=f"共 {len(self.stock_codes)} 只股票")
+        for code, name in self.stock_list:
+            display_text = f"{code} - {name}" if name else code
+            self.stock_listbox.insert(tk.END, display_text)
+        self.stock_count_label.config(text=f"共 {len(self.stock_list)} 只股票")
     
     def update_result_list(self):
         """更新右侧筛选结果列表显示"""
         self.result_listbox.delete(0, tk.END)
-        for code in self.filtered_codes:
-            self.result_listbox.insert(tk.END, code)
-        self.result_count_label.config(text=f"共 {len(self.filtered_codes)} 只股票")
+        for code, name in self.filtered_list:
+            display_text = f"{code} - {name}" if name else code
+            self.result_listbox.insert(tk.END, display_text)
+        self.result_count_label.config(text=f"共 {len(self.filtered_list)} 只股票")
     
     def on_filter(self):
         """
@@ -424,7 +426,7 @@ class StockFilterGUI:
         if self.is_running:
             return
         
-        if not self.stock_codes:
+        if not self.stock_list:
             messagebox.showwarning("警告", "请先提取数据！")
             return
         
@@ -440,7 +442,8 @@ class StockFilterGUI:
         def run():
             try:
                 date = datetime.now().strftime('%Y-%m-%d')
-                codes = self.stock_codes.copy()
+                codes = [code for code, name in self.stock_list]
+                code_to_name = {code: name for code, name in self.stock_list}
                 
                 if 'supertrend' in active_filters:
                     self.root.after(0, lambda: self.log_result(f"SuperTrend筛选 - 输入: {len(codes)} 只股票"))
@@ -484,7 +487,8 @@ class StockFilterGUI:
                     codes = df['stock_code'].tolist() if not df.empty else []
                     self.root.after(0, lambda c=len(codes): self.log_result(f"VP Slope筛选 - 输出: {c} 只股票"))
                 
-                self.filtered_codes = codes
+                codes.sort()
+                self.filtered_list = [(code, code_to_name.get(code, '')) for code in codes]
                 self.root.after(0, self.update_result_list)
                 self.root.after(0, lambda: self.log_result(f"筛选完成！共 {len(codes)} 只股票符合条件"))
                 
