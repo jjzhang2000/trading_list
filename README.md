@@ -13,7 +13,7 @@ trading_list/
 ├── vegas.py              # Vegas通道指标计算模块
 ├── bollingerband.py      # 布林带指标计算模块
 ├── occross.py            # Open/Close Cross指标计算模块
-├── vpSlope.py            # VolumeProfile Slope指标计算模块
+├── vp_slope.py           # VolumeProfile Slope指标计算模块
 ├── requirements.txt      # 依赖项文件
 ├── .env                  # 环境变量文件
 ├── .gitignore            # Git忽略文件
@@ -112,7 +112,7 @@ trading_list/
   - 多头：occ_close > occ_open
   - 空头：occ_close < occ_open
 
-### 6. vpSlope.py
+### 6. vp_slope.py
 
 **功能**：VolumeProfile Slope指标计算模块，用于趋势强度分析。
 
@@ -270,7 +270,7 @@ pip install -r requirements.txt
 
    **Slope指标**：
    ```python
-   from vpSlope import get_stock_slope, filter_stocks_by_slope
+   from vp_slope import get_stock_slope, filter_stocks_by_slope
    
    # 计算单只股票
    slope_df = get_stock_slope('600000', '2025-03-07')
