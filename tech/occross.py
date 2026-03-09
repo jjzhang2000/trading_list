@@ -11,7 +11,7 @@ from typing import Optional, List
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'data'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 
 from data.read_data import get_stock_price_in_range
 

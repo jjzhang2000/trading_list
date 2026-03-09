@@ -8,15 +8,17 @@
 
 ```
 trading_list/
-├── config.py             # 配置文件
-├── supertrend.py         # SuperTrend指标计算模块
-├── vegas.py              # Vegas通道指标计算模块
-├── bollingerband.py      # 布林带指标计算模块
-├── occross.py            # Open/Close Cross指标计算模块
-├── vp_slope.py           # VolumeProfile Slope指标计算模块
+├── trading_list.py       # 股票筛选主程序（命令行）
+├── list_gui.py           # 股票筛选主程序（图形界面）
 ├── requirements.txt      # 依赖项文件
-├── .env                  # 环境变量文件
 ├── .gitignore            # Git忽略文件
+├── tech/                 # 技术指标模块目录
+│   ├── __init__.py       # 模块初始化文件
+│   ├── supertrend.py     # SuperTrend指标计算模块
+│   ├── vegas.py          # Vegas通道指标计算模块
+│   ├── bollingerband.py  # 布林带指标计算模块
+│   ├── occross.py        # Open/Close Cross指标计算模块
+│   └── vp_slope.py       # VolumeProfile Slope指标计算模块
 └── data/
     ├── extract_data.py    # 前复权价格数据获取脚本
     ├── init_db.py         # 数据库初始化脚本
@@ -26,17 +28,55 @@ trading_list/
 
 ## 文件功能说明
 
-### 1. config.py
+### 1. trading_list.py
 
-**功能**：项目配置文件，存储各种配置参数。
+**功能**：股票筛选主程序，整合所有技术指标模块进行股票筛选。
 
-- **配置项**：
-  - 数据获取参数
-  - 技术指标计算参数
-  - 评分系统参数
-  - 其他项目配置
+- **核心函数**：
+  - `update_stock_data()`: 更新股票数据
+  - `run_filter()`: 执行完整的股票筛选流程
+  - `filter_by_supertrend()`: SuperTrend筛选
+  - `filter_by_vegas()`: Vegas通道筛选
+  - `filter_by_bollingerband()`: 布林带筛选
+  - `filter_by_occross()`: OCC指标筛选
+  - `filter_by_vp_slope()`: VP Slope筛选
 
-### 2. supertrend.py
+- **筛选流程**：
+  1. 更新股票数据（可选跳过）
+  2. SuperTrend筛选 → 多头趋势
+  3. Vegas通道筛选 → EMA多头排列
+  4. 布林带筛选 → 开口率超过阈值
+  5. OCC指标筛选 → 多头趋势
+  6. VP Slope筛选 → 斜率大于0
+
+- **命令行参数**：
+  - `-d, --date`: 筛选日期（默认今天）
+  - `-b, --bandwidth`: 布林带开口率阈值（默认10.0）
+  - `-p, --proxy`: 代理服务器地址
+  - `--skip-update`: 跳过数据更新步骤
+
+### 2. list_gui.py
+
+**功能**：股票筛选图形界面程序，提供可视化的操作界面。
+
+- **界面布局**：
+  - **上部**：数据操作区
+    - 初始化数据库按钮：运行init_db，显示成功与否
+    - 提取数据按钮：运行extract_data，显示提取结果
+    - 运行结果文本框：显示操作日志
+  - **中部**：筛选器设置区
+    - 5个筛选器开关：SuperTrend、Vegas通道、布林带、OCC、VP Slope
+    - 开始筛选按钮
+  - **下部**：股票列表区
+    - 左侧列表：显示提取数据后的所有股票
+    - 右侧列表：显示筛选后的股票结果
+
+- **使用方法**：
+  ```bash
+  python list_gui.py
+  ```
+
+### 3. supertrend.py (位于 tech/ 目录)
 
 **功能**：SuperTrend指标计算模块，用于趋势判断和股票筛选。
 
@@ -54,7 +94,7 @@ trading_list/
   - trend_direction = 1: 多头
   - trend_direction = -1: 空头
 
-### 3. vegas.py
+### 4. vegas.py (位于 tech/ 目录)
 
 **功能**：Vegas通道指标计算模块，用于长期趋势判断。
 
@@ -72,7 +112,7 @@ trading_list/
   - 多头：EMA5 > EMA8 > EMA12 > EMA26 > EMA144 > EMA169
   - 空头：EMA5 < EMA8 < EMA12 < EMA26 < EMA144 < EMA169
 
-### 4. bollingerband.py
+### 5. bollingerband.py (位于 tech/ 目录)
 
 **功能**：布林带指标计算模块，用于波动率分析和股票筛选。
 
@@ -89,7 +129,7 @@ trading_list/
   - 开口率 = (上轨 - 下轨) / 中轨 × 100%
   - 开口率越大，表示股价波动越大
 
-### 5. occross.py
+### 6. occross.py (位于 tech/ 目录)
 
 **功能**：Open/Close Cross (OCC) 指标计算模块，用于趋势判断。
 
@@ -112,7 +152,7 @@ trading_list/
   - 多头：occ_close > occ_open
   - 空头：occ_close < occ_open
 
-### 6. vp_slope.py
+### 7. vp_slope.py (位于 tech/ 目录)
 
 **功能**：VolumeProfile Slope指标计算模块，用于趋势强度分析。
 
@@ -131,7 +171,7 @@ trading_list/
   - slope < 0: 下降趋势
   - slope = 0: 横盘整理
 
-### 7. extract_data.py (位于 data/ 目录)
+### 8. extract_data.py (位于 data/ 目录)
 
 **功能**：从新浪财经获取前复权价格数据并存储到数据库。
 
@@ -159,7 +199,7 @@ trading_list/
   - close: 前复权收盘价
   - volume: 成交量
 
-### 8. init_db.py (位于 data/ 目录)
+### 9. init_db.py (位于 data/ 目录)
 
 **功能**：初始化数据库，清除历史数据或创建新数据库。
 
@@ -173,7 +213,7 @@ trading_list/
   - 创建股票信息表（stock_info）
   - 创建索引以提高查询效率
 
-### 9. read_data.py (位于 data/ 目录)
+### 10. read_data.py (位于 data/ 目录)
 
 **功能**：数据库读取模块，提供数据查询功能。
 
@@ -200,12 +240,41 @@ pip install -r requirements.txt
 
 ## 使用方法
 
-1. **初始化数据库**：
+1. **运行股票筛选主程序**（推荐）：
+   ```bash
+   # 默认：更新数据后筛选今天的股票
+   python trading_list.py
+   
+   # 指定日期筛选
+   python trading_list.py -d 2025-03-07
+   
+   # 使用代理更新数据
+   python trading_list.py -p http://127.0.0.1:7890
+   
+   # 跳过数据更新，直接筛选
+   python trading_list.py --skip-update
+   
+   # 完整参数示例
+   python trading_list.py -d 2025-03-07 -b 15.0 -p http://127.0.0.1:7890
+   ```
+
+2. **运行图形界面程序**（推荐）：
+   ```bash
+   python list_gui.py
+   ```
+   
+   图形界面提供：
+   - 初始化数据库按钮
+   - 提取数据按钮
+   - 5个筛选器开关
+   - 股票列表显示
+
+3. **初始化数据库**：
    ```bash
    python data/init_db.py
    ```
 
-2. **提取历史数据**：
+4. **提取历史数据**：
    ```bash
    python data/extract_data.py
    ```
@@ -215,11 +284,11 @@ pip install -r requirements.txt
    python data/extract_data.py --proxy http://127.0.0.1:7890  # 使用代理
    ```
 
-3. **使用技术指标模块**：
+5. **使用技术指标模块**：
 
    **SuperTrend指标**：
    ```python
-   from supertrend import get_stock_supertrend, filter_bullish_stocks
+   from tech.supertrend import get_stock_supertrend, filter_bullish_stocks
    
    # 计算单只股票
    st_df = get_stock_supertrend('600000', '2025-03-07')
@@ -231,7 +300,7 @@ pip install -r requirements.txt
 
    **Vegas通道**：
    ```python
-   from vegas import get_stock_vegas, filter_bullish_stocks
+   from tech.vegas import get_stock_vegas, filter_bullish_stocks
    
    # 计算单只股票
    vegas_df = get_stock_vegas('600000', '2025-03-07')
@@ -243,7 +312,7 @@ pip install -r requirements.txt
 
    **布林带**：
    ```python
-   from bollingerband import get_stock_bollinger_band, filter_stocks_by_bandwidth
+   from tech.bollingerband import get_stock_bollinger_band, filter_stocks_by_bandwidth
    
    # 计算单只股票
    bb_df = get_stock_bollinger_band('600000', '2025-03-07')
@@ -255,7 +324,7 @@ pip install -r requirements.txt
 
    **OCC指标**：
    ```python
-   from occross import get_stock_occ, filter_bullish_stocks
+   from tech.occross import get_stock_occ, filter_bullish_stocks
    
    # 计算单只股票（使用默认TMA）
    occ_df = get_stock_occ('600000', '2025-03-07')
@@ -270,7 +339,7 @@ pip install -r requirements.txt
 
    **Slope指标**：
    ```python
-   from vp_slope import get_stock_slope, filter_stocks_by_slope
+   from tech.vp_slope import get_stock_slope, filter_stocks_by_slope
    
    # 计算单只股票
    slope_df = get_stock_slope('600000', '2025-03-07')
@@ -280,7 +349,7 @@ pip install -r requirements.txt
    result_df = filter_stocks_by_slope('2025-03-07', codes)
    ```
 
-4. **读取数据库**：
+6. **读取数据库**：
    ```python
    from data.read_data import get_stock_price_on_date, get_all_stocks_price_on_date
    
