@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-本项目是一个基于历史数据的股票分析系统，主要用于分析上证A股股票并进行排名，帮助投资者发现潜在的投资机会。项目从新浪财经获取历史前复权价格数据，并结合技术指标进行分析和评分。
+本项目是一个基于历史数据的股票分析系统，主要用于分析上证A股股票并进行排名，帮助投资者发现潜在的投资机会。项目从新浪财经获取历史前复权价格数据，并结合多种技术指标进行分析和筛选。
 
 ## 项目结构
 
@@ -12,12 +12,18 @@ trading_list/
 ├── config.py             # 配置文件
 ├── screen_stocks.py      # 股票筛选脚本
 ├── stock_strategy.py     # 股票策略脚本
+├── supertrend.py         # SuperTrend指标计算模块
+├── vegas.py              # Vegas通道指标计算模块
+├── bollingerband.py      # 布林带指标计算模块
+├── occross.py            # Open/Close Cross指标计算模块
+├── vpSlope.py            # VolumeProfile Slope指标计算模块
 ├── requirements.txt      # 依赖项文件
 ├── .env                  # 环境变量文件
 ├── .gitignore            # Git忽略文件
 └── data/
     ├── extract_data.py    # 前复权价格数据获取脚本
     ├── init_db.py         # 数据库初始化脚本
+    ├── read_data.py       # 数据库读取模块
     └── stock_data.db      # 股票数据库
 ```
 
@@ -66,7 +72,102 @@ trading_list/
   - 均值回归策略
   - 动量策略
 
-### 5. extract_data.py (位于 data/ 目录)
+### 5. supertrend.py
+
+**功能**：SuperTrend指标计算模块，用于趋势判断和股票筛选。
+
+- **核心函数**：
+  - `calculate_supertrend()`: 计算SuperTrend指标
+  - `get_stock_supertrend()`: 获取指定股票的SuperTrend值
+  - `get_all_stocks_supertrend()`: 获取所有股票的SuperTrend值
+  - `filter_bullish_stocks()`: 筛选多头趋势股票
+
+- **计算参数**：
+  - ATR周期：默认10
+  - ATR乘数：默认3.0
+
+- **趋势判断**：
+  - trend_direction = 1: 多头
+  - trend_direction = -1: 空头
+
+### 6. vegas.py
+
+**功能**：Vegas通道指标计算模块，用于长期趋势判断。
+
+- **核心函数**：
+  - `calculate_vegas()`: 计算Vegas通道指标
+  - `get_stock_vegas()`: 获取指定股票的Vegas通道值
+  - `filter_bullish_stocks()`: 筛选多头趋势股票
+
+- **通道组成**：
+  - 超短期通道：EMA 5, EMA 8
+  - 短期通道：EMA 12, EMA 26
+  - 长期通道：EMA 144, EMA 169
+
+- **趋势判断**：
+  - 多头：EMA5 > EMA8 > EMA12 > EMA26 > EMA144 > EMA169
+  - 空头：EMA5 < EMA8 < EMA12 < EMA26 < EMA144 < EMA169
+
+### 7. bollingerband.py
+
+**功能**：布林带指标计算模块，用于波动率分析和股票筛选。
+
+- **核心函数**：
+  - `calculate_bollinger_band()`: 计算布林带指标
+  - `get_stock_bollinger_band()`: 获取指定股票的布林带值
+  - `filter_stocks_by_bandwidth()`: 筛选开口率超过阈值的股票
+
+- **计算参数**：
+  - 移动平均周期：默认20
+  - 标准差倍数：默认2.0
+
+- **开口率计算**：
+  - 开口率 = (上轨 - 下轨) / 中轨 × 100%
+  - 开口率越大，表示股价波动越大
+
+### 8. occross.py
+
+**功能**：Open/Close Cross (OCC) 指标计算模块，用于趋势判断。
+
+- **核心函数**：
+  - `calculate_occ()`: 计算OCC指标
+  - `get_stock_occ()`: 获取指定股票的OCC值
+  - `filter_bullish_stocks()`: 筛选多头趋势股票
+
+- **支持移动平均类型**：
+  - SMA: 简单移动平均
+  - EMA: 指数移动平均
+  - DEMA: 双指数移动平均
+  - TEMA: 三指数移动平均
+  - WMA: 加权移动平均
+  - VWMA: 成交量加权移动平均
+  - SSMA: 超级平滑移动平均
+  - TMA: 三角移动平均（默认）
+
+- **趋势判断**：
+  - 多头：occ_close > occ_open
+  - 空头：occ_close < occ_open
+
+### 9. vpSlope.py
+
+**功能**：VolumeProfile Slope指标计算模块，用于趋势强度分析。
+
+- **核心函数**：
+  - `calculate_linreg_slope()`: 计算线性回归斜率
+  - `calculate_slope()`: 计算Slope指标
+  - `get_stock_slope()`: 获取指定股票的斜率值
+  - `filter_stocks_by_slope()`: 筛选斜率大于0的股票
+
+- **计算参数**：
+  - 长期周期：默认100
+  - 短期周期：默认10
+
+- **斜率意义**：
+  - slope > 0: 上升趋势
+  - slope < 0: 下降趋势
+  - slope = 0: 横盘整理
+
+### 10. extract_data.py (位于 data/ 目录)
 
 **功能**：从新浪财经获取前复权价格数据并存储到数据库。
 
@@ -94,7 +195,7 @@ trading_list/
   - close: 前复权收盘价
   - volume: 成交量
 
-### 6. init_db.py (位于 data/ 目录)
+### 11. init_db.py (位于 data/ 目录)
 
 **功能**：初始化数据库，清除历史数据或创建新数据库。
 
@@ -107,6 +208,17 @@ trading_list/
   - 创建股票日线数据表（stock_daily）
   - 创建股票信息表（stock_info）
   - 创建索引以提高查询效率
+
+### 12. read_data.py (位于 data/ 目录)
+
+**功能**：数据库读取模块，提供数据查询功能。
+
+- **核心函数**：
+  - `get_stock_price_on_date()`: 获取指定股票在指定日期的价格和交易量
+  - `get_all_stocks_price_on_date()`: 获取所有股票在指定日期的价格和交易量
+  - `get_stock_price_in_range()`: 获取指定股票在日期范围内的价格和交易量
+  - `calculate_heikin_ashi()`: 计算Heikin-Ashi平均K线
+  - `get_all_stock_codes()`: 获取所有股票代码列表
 
 ## 依赖项
 
@@ -139,14 +251,84 @@ pip install -r requirements.txt
    python data/extract_data.py --proxy http://127.0.0.1:7890  # 使用代理
    ```
 
-3. **分析股票**：
-   ```bash
-   python stock_analyzer.py
+3. **使用技术指标模块**：
+
+   **SuperTrend指标**：
+   ```python
+   from supertrend import get_stock_supertrend, filter_bullish_stocks
+   
+   # 计算单只股票
+   st_df = get_stock_supertrend('600000', '2025-03-07')
+   
+   # 筛选多头股票
+   codes = ['600000', '600004', '600006']
+   bullish_df = filter_bullish_stocks('2025-03-07', stock_codes=codes)
    ```
 
-4. **筛选股票**：
-   ```bash
-   python screen_stocks.py
+   **Vegas通道**：
+   ```python
+   from vegas import get_stock_vegas, filter_bullish_stocks
+   
+   # 计算单只股票
+   vegas_df = get_stock_vegas('600000', '2025-03-07')
+   
+   # 筛选多头股票
+   codes = ['600000', '600004', '600006']
+   bullish_df = filter_bullish_stocks('2025-03-07', codes)
+   ```
+
+   **布林带**：
+   ```python
+   from bollingerband import get_stock_bollinger_band, filter_stocks_by_bandwidth
+   
+   # 计算单只股票
+   bb_df = get_stock_bollinger_band('600000', '2025-03-07')
+   
+   # 筛选开口率超过10%的股票
+   codes = ['600000', '600004', '600006']
+   result_df = filter_stocks_by_bandwidth('2025-03-07', codes, threshold=10.0)
+   ```
+
+   **OCC指标**：
+   ```python
+   from occross import get_stock_occ, filter_bullish_stocks
+   
+   # 计算单只股票（使用默认TMA）
+   occ_df = get_stock_occ('600000', '2025-03-07')
+   
+   # 使用EMA计算
+   occ_df = get_stock_occ('600000', '2025-03-07', ma_type='EMA')
+   
+   # 筛选多头股票
+   codes = ['600000', '600004', '600006']
+   bullish_df = filter_bullish_stocks('2025-03-07', codes)
+   ```
+
+   **Slope指标**：
+   ```python
+   from vpSlope import get_stock_slope, filter_stocks_by_slope
+   
+   # 计算单只股票
+   slope_df = get_stock_slope('600000', '2025-03-07')
+   
+   # 筛选斜率大于0的股票
+   codes = ['600000', '600004', '600006']
+   result_df = filter_stocks_by_slope('2025-03-07', codes)
+   ```
+
+4. **读取数据库**：
+   ```python
+   from data.read_data import get_stock_price_on_date, get_all_stocks_price_on_date
+   
+   # 获取指定股票的价格
+   open_price, high_price, low_price, close_price, volume = get_stock_price_on_date('600000', '2025-03-07')
+   
+   # 获取所有股票的价格
+   df = get_all_stocks_price_on_date('2025-03-07')
+   
+   # 获取所有股票代码
+   from data.read_data import get_all_stock_codes
+   codes = get_all_stock_codes()
    ```
 
 ## 数据来源
@@ -184,6 +366,28 @@ pip install -r requirements.txt
   - 后复权因子：1.0
   - 前复权收盘价：13.480 / 1.0 = 13.480元
 
+## 技术指标说明
+
+### SuperTrend
+
+SuperTrend是一种趋势跟踪指标，基于ATR（平均真实波幅）计算。它通过动态调整支撑/阻力位来识别趋势方向。
+
+### Vegas通道
+
+Vegas通道由多条EMA组成，通过不同周期的EMA排列来判断趋势。当所有EMA从上到下依次排列时为多头趋势，反之为空头趋势。
+
+### 布林带
+
+布林带由中轨（移动平均线）和上下轨（中轨±N倍标准差）组成。开口率反映了股价的波动程度，开口率扩大通常预示着趋势的开始。
+
+### Open/Close Cross (OCC)
+
+OCC指标通过比较开盘价和收盘价的移动平均线来判断趋势。当收盘价的MA高于开盘价的MA时为多头趋势。
+
+### VolumeProfile Slope
+
+Slope指标通过线性回归计算价格趋势的斜率。斜率大于0表示上升趋势，小于0表示下降趋势。
+
 ## 注意事项
 
 1. **数据完整性**：
@@ -198,12 +402,19 @@ pip install -r requirements.txt
    - 系统会自动检测复权因子变动
    - 当复权因子变动时，会重新下载所有历史数据
 
+4. **技术指标使用**：
+   - 不同指标适用于不同的市场环境
+   - 建议结合多个指标进行综合分析
+   - 注意指标的滞后性和假信号
+
 ## 项目扩展
 
 - 可以添加更多技术指标
 - 可以实现更复杂的评分算法
 - 可以添加数据可视化功能
 - 可以实现自动交易策略
+- 可以添加回测功能
+- 可以添加风险管理模块
 
 ## 许可证
 
