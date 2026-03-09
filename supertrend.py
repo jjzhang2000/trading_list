@@ -192,12 +192,14 @@ def get_all_stocks_supertrend(date: str, period: int = 10, multiplier: float = 3
     return result_df
 
 
-def filter_bullish_stocks(date: str, period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
+def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None, 
+                          period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
     """
     筛选指定日期趋势为多头（trend_direction=1）的股票
     
     Args:
         date: 日期（YYYY-MM-DD格式）
+        stock_codes: 股票代码列表，如果为None则使用所有股票
         period: ATR计算周期，默认为10
         multiplier: ATR乘数，默认为3.0
     
@@ -208,15 +210,35 @@ def filter_bullish_stocks(date: str, period: int = 10, multiplier: float = 3.0) 
     Example:
         >>> bullish_df = filter_bullish_stocks('2025-03-07')
         >>> print(bullish_df.head())
+        
+        >>> codes = ['600000', '600004', '600006']
+        >>> bullish_df = filter_bullish_stocks('2025-03-07', stock_codes=codes)
+        >>> print(bullish_df)
     """
-    all_stocks_df = get_all_stocks_supertrend(date, period, multiplier)
+    if stock_codes is None:
+        stock_codes = get_all_stock_codes()
     
-    if all_stocks_df.empty:
-        return pd.DataFrame()
+    results = []
     
-    bullish_df = all_stocks_df[all_stocks_df['trend_direction'] == 1].copy()
+    for i, code in enumerate(stock_codes):
+        if (i + 1) % 100 == 0:
+            print(f"  处理进度: {i + 1}/{len(stock_codes)}")
+        
+        st_df = get_stock_supertrend(code, date, days=50, period=period, multiplier=multiplier)
+        
+        if st_df is not None and not st_df.empty:
+            last_row = st_df.iloc[-1]
+            if last_row['trend_direction'] == 1:
+                results.append({
+                    'stock_code': code,
+                    'supertrend': last_row['supertrend'],
+                    'trend_direction': last_row['trend_direction']
+                })
     
-    bullish_df = bullish_df.sort_values('stock_code').reset_index(drop=True)
+    bullish_df = pd.DataFrame(results)
+    
+    if not bullish_df.empty:
+        bullish_df = bullish_df.sort_values('stock_code').reset_index(drop=True)
     
     return bullish_df
 
@@ -255,22 +277,11 @@ def main():
     print(f"  获取到 {len(result_df)} 只股票的SuperTrend数据")
     print(result_df)
     
-    # 测试3：筛选多头股票（只测试前50只股票）
-    print("\n测试3：筛选2025-03-07趋势为多头的股票（只测试前50只股票）")
-    codes = get_all_stock_codes()[:50]
-    results = []
-    for code in codes:
-        st_df = get_stock_supertrend(code, '2025-03-07')
-        if st_df is not None and not st_df.empty:
-            last_row = st_df.iloc[-1]
-            if last_row['trend_direction'] == 1:
-                results.append({
-                    'stock_code': code,
-                    'supertrend': last_row['supertrend'],
-                    'trend_direction': last_row['trend_direction']
-                })
-    
-    bullish_df = pd.DataFrame(results)
+    # 测试3：筛选多头股票（使用股票列表参数）
+    print("\n测试3：筛选2025-03-07趋势为多头的股票（使用股票列表参数）")
+    codes = ['600000', '600004', '600006', '600007', '600008', 
+             '600009', '600010', '600011', '600012', '600015']
+    bullish_df = filter_bullish_stocks('2025-03-07', stock_codes=codes)
     print(f"  找到 {len(bullish_df)} 只多头股票")
     print(bullish_df)
     
