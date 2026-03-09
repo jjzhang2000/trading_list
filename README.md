@@ -8,10 +8,7 @@
 
 ```
 trading_list/
-├── stock_analyzer.py      # 股票分析主脚本
 ├── config.py             # 配置文件
-├── screen_stocks.py      # 股票筛选脚本
-├── stock_strategy.py     # 股票策略脚本
 ├── supertrend.py         # SuperTrend指标计算模块
 ├── vegas.py              # Vegas通道指标计算模块
 ├── bollingerband.py      # 布林带指标计算模块
@@ -29,22 +26,7 @@ trading_list/
 
 ## 文件功能说明
 
-### 1. stock_analyzer.py
-
-**功能**：股票分析主脚本，负责计算技术指标和对股票进行评分排名。
-
-- **技术指标计算**：
-  - 移动平均线 (MA)
-  - 相对强弱指标 (RSI)
-  - 移动平均收敛发散 (MACD)
-  - 其他技术指标
-
-- **股票评分系统**：
-  - 基于技术指标的综合评分
-  - 股票排名功能
-  - 生成投资建议
-
-### 2. config.py
+### 1. config.py
 
 **功能**：项目配置文件，存储各种配置参数。
 
@@ -54,25 +36,7 @@ trading_list/
   - 评分系统参数
   - 其他项目配置
 
-### 3. screen_stocks.py
-
-**功能**：股票筛选脚本，根据特定条件筛选股票。
-
-- **筛选条件**：
-  - 基于技术指标的筛选
-  - 基于基本面的筛选
-  - 自定义筛选策略
-
-### 4. stock_strategy.py
-
-**功能**：股票策略脚本，实现各种交易策略。
-
-- **策略实现**：
-  - 趋势跟踪策略
-  - 均值回归策略
-  - 动量策略
-
-### 5. supertrend.py
+### 2. supertrend.py
 
 **功能**：SuperTrend指标计算模块，用于趋势判断和股票筛选。
 
@@ -90,7 +54,7 @@ trading_list/
   - trend_direction = 1: 多头
   - trend_direction = -1: 空头
 
-### 6. vegas.py
+### 3. vegas.py
 
 **功能**：Vegas通道指标计算模块，用于长期趋势判断。
 
@@ -108,7 +72,7 @@ trading_list/
   - 多头：EMA5 > EMA8 > EMA12 > EMA26 > EMA144 > EMA169
   - 空头：EMA5 < EMA8 < EMA12 < EMA26 < EMA144 < EMA169
 
-### 7. bollingerband.py
+### 4. bollingerband.py
 
 **功能**：布林带指标计算模块，用于波动率分析和股票筛选。
 
@@ -125,7 +89,7 @@ trading_list/
   - 开口率 = (上轨 - 下轨) / 中轨 × 100%
   - 开口率越大，表示股价波动越大
 
-### 8. occross.py
+### 5. occross.py
 
 **功能**：Open/Close Cross (OCC) 指标计算模块，用于趋势判断。
 
@@ -148,7 +112,7 @@ trading_list/
   - 多头：occ_close > occ_open
   - 空头：occ_close < occ_open
 
-### 9. vpSlope.py
+### 6. vpSlope.py
 
 **功能**：VolumeProfile Slope指标计算模块，用于趋势强度分析。
 
@@ -167,7 +131,7 @@ trading_list/
   - slope < 0: 下降趋势
   - slope = 0: 横盘整理
 
-### 10. extract_data.py (位于 data/ 目录)
+### 7. extract_data.py (位于 data/ 目录)
 
 **功能**：从新浪财经获取前复权价格数据并存储到数据库。
 
@@ -195,7 +159,7 @@ trading_list/
   - close: 前复权收盘价
   - volume: 成交量
 
-### 11. init_db.py (位于 data/ 目录)
+### 8. init_db.py (位于 data/ 目录)
 
 **功能**：初始化数据库，清除历史数据或创建新数据库。
 
@@ -209,7 +173,7 @@ trading_list/
   - 创建股票信息表（stock_info）
   - 创建索引以提高查询效率
 
-### 12. read_data.py (位于 data/ 目录)
+### 9. read_data.py (位于 data/ 目录)
 
 **功能**：数据库读取模块，提供数据查询功能。
 
