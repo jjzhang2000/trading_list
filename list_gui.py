@@ -49,9 +49,24 @@ from tkinter import ttk, messagebox, scrolledtext
 import threading
 from datetime import datetime
 from typing import List, Optional
+import atexit
 
 from data import init_db, extract_data, read_data
 from tech import supertrend, vegas, bollingerband, occross, vp_slope
+
+
+class StoppableThread(threading.Thread):
+    """可停止的线程类，避免Python 3.13的daemon线程清理问题"""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._stop_event = threading.Event()
+    
+    def stop(self):
+        self._stop_event.set()
+    
+    def is_stopped(self):
+        return self._stop_event.is_set()
 
 
 class StockFilterGUI:
@@ -64,6 +79,7 @@ class StockFilterGUI:
         filtered_codes: 筛选后的股票代码列表
         is_running: 标记是否有后台任务正在运行
         filter_vars: 筛选器开关变量的字典
+        worker_thread: 当前运行的工作线程
     """
     
     def __init__(self, root):
@@ -80,8 +96,11 @@ class StockFilterGUI:
         self.stock_codes: List[str] = []
         self.filtered_codes: List[str] = []
         self.is_running = False
+        self.worker_thread: Optional[StoppableThread] = None
         
         self.setup_ui()
+        
+        atexit.register(self.cleanup)
     
     def setup_ui(self):
         """
@@ -95,6 +114,12 @@ class StockFilterGUI:
         self.setup_top_frame()
         self.setup_middle_frame()
         self.setup_bottom_frame()
+    
+    def cleanup(self):
+        """清理资源，在程序退出时调用"""
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.stop()
+            self.worker_thread.join(timeout=1.0)
     
     def setup_top_frame(self):
         """
@@ -239,7 +264,8 @@ class StockFilterGUI:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
         
-        threading.Thread(target=run, daemon=True).start()
+        self.worker_thread = StoppableThread(target=run)
+        self.worker_thread.start()
     
     def on_extract_data(self):
         """
@@ -366,7 +392,8 @@ class StockFilterGUI:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
         
-        threading.Thread(target=run, daemon=True).start()
+        self.worker_thread = StoppableThread(target=run)
+        self.worker_thread.start()
     
     def update_stock_list(self):
         """更新左侧股票列表显示"""
@@ -468,7 +495,8 @@ class StockFilterGUI:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
         
-        threading.Thread(target=run, daemon=True).start()
+        self.worker_thread = StoppableThread(target=run)
+        self.worker_thread.start()
 
 
 def main():
