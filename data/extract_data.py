@@ -366,8 +366,15 @@ def get_stock_info(conn, stock_code):
         }
     return None
 
-def update_stock_info(conn, stock_code, df):
-    """更新股票信息"""
+def update_stock_info(conn, stock_code, df, stock_name=''):
+    """更新股票信息
+    
+    Args:
+        conn: 数据库连接
+        stock_code: 股票代码
+        df: 股票数据DataFrame
+        stock_name: 股票名称
+    """
     if df.empty:
         return
     
@@ -380,11 +387,15 @@ def update_stock_info(conn, stock_code, df):
         INSERT OR REPLACE INTO stock_info 
         (stock_code, stock_name, total_records, start_date, end_date)
         VALUES (?, ?, ?, ?, ?)
-    """, (stock_code, '', total_records, start_date, end_date))
+    """, (stock_code, stock_name, total_records, start_date, end_date))
     conn.commit()
 
 def get_sh_a_stock_list():
-    """获取上证A股股票代码列表（60开头）- 尝试多个数据源"""
+    """获取上证A股股票代码和名称列表（60开头）- 尝试多个数据源
+    
+    Returns:
+        [(股票代码, 股票名称), ...] 元组列表
+    """
     import requests
     
     # 尝试方法1: 使用新浪财经API
@@ -422,8 +433,8 @@ def get_sh_a_stock_list():
                 # 没有更多数据，退出循环
                 break
             
-            # 筛选出60开头的股票代码
-            page_stocks = [stock['code'] for stock in data if stock['code'].startswith('60')]
+            # 筛选出60开头的股票代码和名称
+            page_stocks = [(stock['code'], stock.get('name', '')) for stock in data if stock['code'].startswith('60')]
             all_stocks.extend(page_stocks)
             
             print(f"    第{page}页: 获取 {len(page_stocks)} 只股票，累计 {len(all_stocks)} 只")
@@ -438,11 +449,16 @@ def get_sh_a_stock_list():
             time.sleep(0.1)
         
         if all_stocks:
-            # 去重
-            all_stocks = list(set(all_stocks))
-            all_stocks.sort()
-            print(f"  成功从新浪财经获取 {len(all_stocks)} 只上证A股股票")
-            return all_stocks
+            # 去重并按代码排序
+            seen = set()
+            unique_stocks = []
+            for code, name in all_stocks:
+                if code not in seen:
+                    seen.add(code)
+                    unique_stocks.append((code, name))
+            unique_stocks.sort(key=lambda x: x[0])
+            print(f"  成功从新浪财经获取 {len(unique_stocks)} 只上证A股股票")
+            return unique_stocks
     except Exception as e:
         print(f"  新浪财经API失败: {e}")
     

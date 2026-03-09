@@ -293,8 +293,8 @@ class StockFilterGUI:
                 adj_fetcher = extract_data.RealAdjustFactorFetcher(proxy=None)
                 extract_data.create_database(extract_data.DB_PATH)
                 
-                stock_codes = extract_data.get_sh_a_stock_list()
-                total = len(stock_codes)
+                stock_list = extract_data.get_sh_a_stock_list()
+                total = len(stock_list)
                 
                 if total == 0:
                     self.root.after(0, lambda: self.log_result("获取股票列表失败"))
@@ -313,7 +313,7 @@ class StockFilterGUI:
                 success_count = 0
                 total_records = 0
                 
-                for i, stock_code in enumerate(stock_codes):
+                for i, (stock_code, stock_name) in enumerate(stock_list):
                     stock_info = extract_data.get_stock_info(conn, stock_code)
                     
                     if stock_info is None:
@@ -328,7 +328,7 @@ class StockFilterGUI:
                             success_count += 1
                             total_records += len(df_adj)
                             extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj)
-                            extract_data.update_stock_info(conn, stock_code, df_adj)
+                            extract_data.update_stock_info(conn, stock_code, df_adj, stock_name)
                     else:
                         df_adj, source = adj_fetcher.fetch_adjust_factor(
                             stock_code, stock_info['end_date'], end_date_str
@@ -353,7 +353,7 @@ class StockFilterGUI:
                                         success_count += 1
                                         total_records += len(df_adj_full)
                                         extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj_full)
-                                        extract_data.update_stock_info(conn, stock_code, df_adj_full)
+                                        extract_data.update_stock_info(conn, stock_code, df_adj_full, stock_name)
                                 else:
                                     new_data = df_adj[df_adj['date'] > stock_info['end_date']]
                                     
@@ -361,7 +361,7 @@ class StockFilterGUI:
                                         success_count += 1
                                         total_records += len(new_data)
                                         extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                                        extract_data.update_stock_info(conn, stock_code, new_data)
+                                        extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
                             else:
                                 new_data = df_adj[df_adj['date'] > stock_info['end_date']]
                                 
@@ -369,7 +369,7 @@ class StockFilterGUI:
                                     success_count += 1
                                     total_records += len(new_data)
                                     extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                                    extract_data.update_stock_info(conn, stock_code, new_data)
+                                    extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
                     
                     if (i + 1) % 50 == 0:
                         progress = (i + 1) / total * 100

@@ -77,8 +77,8 @@ def update_stock_data(proxy: Optional[str] = None):
     adj_fetcher = extract_data.RealAdjustFactorFetcher(proxy=proxy)
     extract_data.create_database(extract_data.DB_PATH)
     
-    stock_codes = extract_data.get_sh_a_stock_list()
-    total = len(stock_codes)
+    stock_list = extract_data.get_sh_a_stock_list()
+    total = len(stock_list)
     
     if total == 0:
         print("没有获取到股票列表，跳过数据更新")
@@ -97,7 +97,7 @@ def update_stock_data(proxy: Optional[str] = None):
     end_date = datetime.now()
     end_date_str = end_date.strftime('%Y-%m-%d')
     
-    for i, stock_code in enumerate(stock_codes):
+    for i, (stock_code, stock_name) in enumerate(stock_list):
         stock_info = extract_data.get_stock_info(conn, stock_code)
         
         if stock_info is None:
@@ -111,7 +111,7 @@ def update_stock_data(proxy: Optional[str] = None):
             if df_adj is not None and not df_adj.empty:
                 success_count += 1
                 extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj)
-                extract_data.update_stock_info(conn, stock_code, df_adj)
+                extract_data.update_stock_info(conn, stock_code, df_adj, stock_name)
         else:
             df_adj, source = adj_fetcher.fetch_adjust_factor(
                 stock_code, stock_info['end_date'], end_date_str
@@ -135,21 +135,21 @@ def update_stock_data(proxy: Optional[str] = None):
                         if df_adj_full is not None and not df_adj_full.empty:
                             success_count += 1
                             extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj_full)
-                            extract_data.update_stock_info(conn, stock_code, df_adj_full)
+                            extract_data.update_stock_info(conn, stock_code, df_adj_full, stock_name)
                     else:
                         new_data = df_adj[df_adj['date'] > stock_info['end_date']]
                         
                         if not new_data.empty:
                             success_count += 1
                             extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                            extract_data.update_stock_info(conn, stock_code, new_data)
+                            extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
                 else:
                     new_data = df_adj[df_adj['date'] > stock_info['end_date']]
                     
                     if not new_data.empty:
                         success_count += 1
                         extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                        extract_data.update_stock_info(conn, stock_code, new_data)
+                        extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
             else:
                 fail_count += 1
         
