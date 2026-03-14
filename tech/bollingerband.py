@@ -50,10 +50,15 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 20, std_dev: float 
     if 'date' in df.columns:
         result['date'] = df['date']
     
-    result['middle_band'] = bb_df[f'BBM_{period}_{std_dev}']
-    result['upper_band'] = bb_df[f'BBU_{period}_{std_dev}']
-    result['lower_band'] = bb_df[f'BBL_{period}_{std_dev}']
-    result['bandwidth'] = bb_df[f'BBB_{period}_{std_dev}']
+    bbm_col = [col for col in bb_df.columns if col.startswith('BBM_')][0]
+    bbu_col = [col for col in bb_df.columns if col.startswith('BBU_')][0]
+    bbl_col = [col for col in bb_df.columns if col.startswith('BBL_')][0]
+    bbb_col = [col for col in bb_df.columns if col.startswith('BBB_')][0]
+    
+    result['middle_band'] = bb_df[bbm_col]
+    result['upper_band'] = bb_df[bbu_col]
+    result['lower_band'] = bb_df[bbl_col]
+    result['bandwidth'] = bb_df[bbb_col]
     
     return result
 
