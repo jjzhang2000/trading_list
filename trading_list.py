@@ -190,7 +190,7 @@ def filter_by_vegas(date: str, stock_codes: List[str]) -> List[str]:
     """
     Vegas通道筛选
     
-    筛选出EMA呈多头排列（EMA5 > EMA8 > EMA12 > EMA26 > EMA144 > EMA169）的股票。
+    筛选出EMA呈多头排列（EMA12 > EMA26 > EMA144 > EMA169 > EMA576 > EMA676）的股票。
     
     Args:
         date: 筛选日期（YYYY-MM-DD格式）
@@ -202,6 +202,7 @@ def filter_by_vegas(date: str, stock_codes: List[str]) -> List[str]:
     算法说明：
         Vegas通道由多条EMA组成，通过不同周期的EMA排列来判断趋势。
         当所有EMA从上到下依次排列时为多头趋势，反之为空头趋势。
+        参数：EMA 12, 26, 144, 169, 576, 676
     """
     print(f"\n[2/5] Vegas通道筛选 - 输入: {len(stock_codes)} 只股票")
     df = vegas.filter_bullish_stocks(date, stock_codes)
