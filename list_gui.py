@@ -258,8 +258,9 @@ class StockFilterGUI:
                 self.root.after(0, lambda: self.log_result("数据库初始化成功！"))
                 self.root.after(0, lambda: messagebox.showinfo("成功", "数据库初始化成功！"))
             except Exception as e:
-                self.root.after(0, lambda: self.log_result(f"初始化失败: {str(e)}"))
-                self.root.after(0, lambda: messagebox.showerror("错误", f"初始化失败: {str(e)}"))
+                error_msg = str(e)
+                self.root.after(0, lambda msg=error_msg: self.log_result(f"初始化失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"初始化失败: {msg}"))
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
@@ -386,8 +387,9 @@ class StockFilterGUI:
                 self.root.after(0, lambda: messagebox.showinfo("成功", f"提取完成！\n成功: {success_count} 只股票\n共: {total_records} 条记录"))
                 
             except Exception as e:
-                self.root.after(0, lambda: self.log_result(f"提取失败: {str(e)}"))
-                self.root.after(0, lambda: messagebox.showerror("错误", f"提取失败: {str(e)}"))
+                error_msg = str(e)
+                self.root.after(0, lambda msg=error_msg: self.log_result(f"提取失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"提取失败: {msg}"))
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
@@ -496,8 +498,9 @@ class StockFilterGUI:
                 self.root.after(0, lambda: self.log_result(f"筛选完成！共 {len(codes)} 只股票符合条件"))
                 
             except Exception as e:
-                self.root.after(0, lambda: self.log_result(f"筛选失败: {str(e)}"))
-                self.root.after(0, lambda: messagebox.showerror("错误", f"筛选失败: {str(e)}"))
+                error_msg = str(e)
+                self.root.after(0, lambda msg=error_msg: self.log_result(f"筛选失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"筛选失败: {msg}"))
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
