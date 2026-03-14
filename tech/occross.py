@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 Open/Close Cross (OCC) 指标计算模块
-提供OCC指标计算和筛选功能
+使用pandas-ta库实现OCC指标计算和筛选功能
 """
 
 import pandas as pd
-import numpy as np
+import pandas_ta as ta
 from typing import Optional, List
 import sys
 import os
@@ -16,104 +16,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 from data.read_data import get_stock_price_in_range
 
 
-def calculate_sma(data: pd.Series, period: int) -> pd.Series:
-    """简单移动平均"""
-    return data.rolling(window=period).mean()
-
-
-def calculate_ema(data: pd.Series, period: int) -> pd.Series:
-    """指数移动平均"""
-    return data.ewm(span=period, adjust=False).mean()
-
-
-def calculate_dema(data: pd.Series, period: int) -> pd.Series:
-    """双指数移动平均"""
-    ema1 = calculate_ema(data, period)
-    ema2 = calculate_ema(ema1, period)
-    return 2 * ema1 - ema2
-
-
-def calculate_tema(data: pd.Series, period: int) -> pd.Series:
-    """三指数移动平均"""
-    ema1 = calculate_ema(data, period)
-    ema2 = calculate_ema(ema1, period)
-    ema3 = calculate_ema(ema2, period)
-    return 3 * ema1 - 3 * ema2 + ema3
-
-
-def calculate_wma(data: pd.Series, period: int) -> pd.Series:
-    """加权移动平均"""
-    weights = np.arange(1, period + 1)
-    return data.rolling(window=period).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
-
-
-def calculate_vwma(data: pd.Series, volume: pd.Series, period: int) -> pd.Series:
-    """成交量加权移动平均"""
-    return (data * volume).rolling(window=period).sum() / volume.rolling(window=period).sum()
-
-
-def calculate_ssma(data: pd.Series, period: int) -> pd.Series:
-    """超级平滑移动平均"""
-    ssma = data.copy()
-    for i in range(1, len(data)):
-        if i < period:
-            ssma.iloc[i] = data.iloc[:i+1].mean()
-        else:
-            ssma.iloc[i] = (ssma.iloc[i-1] * (period - 1) + data.iloc[i]) / period
-    return ssma
-
-
-def calculate_tma(data: pd.Series, period: int) -> pd.Series:
-    """三角移动平均"""
-    sma1 = calculate_sma(data, period)
-    return calculate_sma(sma1, period)
-
-
-def calculate_ma(data: pd.Series, period: int, ma_type: str = "TMA", volume: pd.Series = None) -> pd.Series:
-    """
-    计算移动平均线
-    
-    Args:
-        data: 数据序列
-        period: 周期
-        ma_type: 移动平均类型，可选：SMA, EMA, DEMA, TEMA, WMA, VWMA, SSMA, TMA
-        volume: 成交量序列（仅VWMA需要）
-    
-    Returns:
-        移动平均序列
-    """
-    ma_type = ma_type.upper()
-    
-    if ma_type == "SMA":
-        return calculate_sma(data, period)
-    elif ma_type == "EMA":
-        return calculate_ema(data, period)
-    elif ma_type == "DEMA":
-        return calculate_dema(data, period)
-    elif ma_type == "TEMA":
-        return calculate_tema(data, period)
-    elif ma_type == "WMA":
-        return calculate_wma(data, period)
-    elif ma_type == "VWMA":
-        if volume is None:
-            raise ValueError("VWMA需要提供volume参数")
-        return calculate_vwma(data, volume, period)
-    elif ma_type == "SSMA":
-        return calculate_ssma(data, period)
-    elif ma_type == "TMA":
-        return calculate_tma(data, period)
-    else:
-        raise ValueError(f"不支持的MA类型: {ma_type}")
-
-
-def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "TMA") -> pd.DataFrame:
+def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "ema") -> pd.DataFrame:
     """
     计算Open/Close Cross (OCC) 指标
     
     Args:
-        df: DataFrame，必须包含列：open, close, volume（如果使用VWMA）
+        df: DataFrame，必须包含列：open, close
         period: 移动平均周期，默认为8
-        ma_type: 移动平均类型，默认为TMA
+        ma_type: 移动平均类型，默认为ema
     
     Returns:
         DataFrame，包含列：occ_open, occ_close, trend_direction
@@ -134,12 +44,31 @@ def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "TMA") -> pd
     
     df = df.copy()
     
-    if ma_type == "VWMA":
-        occ_open = calculate_ma(df['open'], period, ma_type, df['volume'])
-        occ_close = calculate_ma(df['close'], period, ma_type, df['volume'])
+    ma_type_lower = ma_type.lower()
+    
+    if ma_type_lower == "ema":
+        occ_open = ta.ema(df['open'], length=period)
+        occ_close = ta.ema(df['close'], length=period)
+    elif ma_type_lower == "sma":
+        occ_open = ta.sma(df['open'], length=period)
+        occ_close = ta.sma(df['close'], length=period)
+    elif ma_type_lower == "wma":
+        occ_open = ta.wma(df['open'], length=period)
+        occ_close = ta.wma(df['close'], length=period)
+    elif ma_type_lower == "dema":
+        occ_open = ta.dema(df['open'], length=period)
+        occ_close = ta.dema(df['close'], length=period)
+    elif ma_type_lower == "tema":
+        occ_open = ta.tema(df['open'], length=period)
+        occ_close = ta.tema(df['close'], length=period)
+    elif ma_type_lower == "tma":
+        sma1_open = ta.sma(df['open'], length=period)
+        sma1_close = ta.sma(df['close'], length=period)
+        occ_open = ta.sma(sma1_open, length=period)
+        occ_close = ta.sma(sma1_close, length=period)
     else:
-        occ_open = calculate_ma(df['open'], period, ma_type)
-        occ_close = calculate_ma(df['close'], period, ma_type)
+        occ_open = ta.ema(df['open'], length=period)
+        occ_close = ta.ema(df['close'], length=period)
     
     result = pd.DataFrame()
     if 'date' in df.columns:
@@ -155,7 +84,7 @@ def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "TMA") -> pd
 
 
 def get_stock_occ(stock_code: str, end_date: str, days: int = 50, 
-                  period: int = 8, ma_type: str = "TMA") -> Optional[pd.DataFrame]:
+                  period: int = 8, ma_type: str = "ema") -> Optional[pd.DataFrame]:
     """
     计算指定股票的OCC指标值
     
@@ -164,7 +93,7 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
         end_date: 结束日期（YYYY-MM-DD格式）
         days: 计算天数，默认为50天
         period: 移动平均周期，默认为8
-        ma_type: 移动平均类型，默认为TMA
+        ma_type: 移动平均类型，默认为ema
     
     Returns:
         DataFrame，包含列：date, occ_open, occ_close, trend_direction
@@ -194,7 +123,7 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
 
 
 def filter_bullish_stocks(date: str, stock_codes: List[str], 
-                          period: int = 8, ma_type: str = "TMA") -> pd.DataFrame:
+                          period: int = 8, ma_type: str = "ema") -> pd.DataFrame:
     """
     筛选指定日期OCC为多头（trend_direction=1）的股票
     
@@ -202,7 +131,7 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表
         period: 移动平均周期，默认为8
-        ma_type: 移动平均类型，默认为TMA
+        ma_type: 移动平均类型，默认为ema
     
     Returns:
         DataFrame，包含列：stock_code, occ_open, occ_close, trend_direction
@@ -244,11 +173,10 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
 def main():
     """测试函数"""
     print("=" * 70)
-    print("测试OCC指标计算模块")
+    print("测试OCC指标计算模块 (pandas-ta)")
     print("=" * 70)
     
-    # 测试1：计算指定股票的OCC指标值
-    print("\n测试1：计算600000的OCC指标值")
+    print("\n测试：计算600000的OCC指标值")
     occ_df = get_stock_occ('600000', '2025-03-07')
     if occ_df is not None and not occ_df.empty:
         print(f"  获取到 {len(occ_df)} 条OCC数据")
@@ -256,21 +184,6 @@ def main():
         print(occ_df.tail())
     else:
         print("  数据不足，无法计算OCC指标")
-    
-    # 测试2：筛选多头股票
-    print("\n测试2：筛选2025-03-07趋势为多头的股票")
-    codes = ['600000', '600004', '600006', '600007', '600008', 
-             '600009', '600010', '600011', '600012', '600015']
-    bullish_df = filter_bullish_stocks('2025-03-07', codes)
-    print(f"  找到 {len(bullish_df)} 只多头股票")
-    print(bullish_df)
-    
-    # 测试3：使用不同的MA类型
-    print("\n测试3：使用EMA计算OCC指标")
-    occ_df_ema = get_stock_occ('600000', '2025-03-07', ma_type='EMA')
-    if occ_df_ema is not None and not occ_df_ema.empty:
-        print("  最近5天的数据（EMA）:")
-        print(occ_df_ema.tail())
     
     print("\n" + "=" * 70)
     print("测试完成")

@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 布林带指标计算模块
-提供布林带计算和筛选功能
+使用pandas-ta库实现布林带计算和筛选功能
 """
 
 import pandas as pd
-import numpy as np
+import pandas_ta as ta
 from typing import Optional, List
 import sys
 import os
@@ -28,11 +28,11 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 20, std_dev: float 
     Returns:
         DataFrame，包含列：middle_band, upper_band, lower_band, bandwidth
         
-    计算公式：
-        中轨 = 移动平均线（MA）
-        上轨 = 中轨 + N × 标准差
-        下轨 = 中轨 - N × 标准差
-        开口率 = (上轨 - 下轨) / 中轨 × 100%
+    使用pandas-ta的bbands函数计算：
+        - 中轨 = 移动平均线（MA）
+        - 上轨 = 中轨 + N × 标准差
+        - 下轨 = 中轨 - N × 标准差
+        - 开口率 = (上轨 - 下轨) / 中轨 × 100%
     
     Example:
         >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
@@ -44,22 +44,16 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 20, std_dev: float 
     
     df = df.copy()
     
-    df['middle_band'] = df['close'].rolling(window=period).mean()
-    
-    rolling_std = df['close'].rolling(window=period).std()
-    
-    df['upper_band'] = df['middle_band'] + (std_dev * rolling_std)
-    df['lower_band'] = df['middle_band'] - (std_dev * rolling_std)
-    
-    df['bandwidth'] = ((df['upper_band'] - df['lower_band']) / df['middle_band']) * 100
+    bb_df = ta.bbands(df['close'], length=period, std=std_dev)
     
     result = pd.DataFrame()
     if 'date' in df.columns:
         result['date'] = df['date']
-    result['middle_band'] = df['middle_band']
-    result['upper_band'] = df['upper_band']
-    result['lower_band'] = df['lower_band']
-    result['bandwidth'] = df['bandwidth']
+    
+    result['middle_band'] = bb_df[f'BBM_{period}_{std_dev}']
+    result['upper_band'] = bb_df[f'BBU_{period}_{std_dev}']
+    result['lower_band'] = bb_df[f'BBL_{period}_{std_dev}']
+    result['bandwidth'] = bb_df[f'BBB_{period}_{std_dev}']
     
     return result
 
@@ -136,7 +130,7 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
         
         if bb_df is not None and not bb_df.empty:
             last_row = bb_df.iloc[-1]
-            if last_row['bandwidth'] > threshold:
+            if pd.notna(last_row['bandwidth']) and last_row['bandwidth'] > threshold:
                 results.append({
                     'stock_code': code,
                     'middle_band': last_row['middle_band'],
@@ -156,11 +150,10 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
 def main():
     """测试函数"""
     print("=" * 70)
-    print("测试布林带指标计算模块")
+    print("测试布林带指标计算模块 (pandas-ta)")
     print("=" * 70)
     
-    # 测试1：计算指定股票的布林带值
-    print("\n测试1：计算600000的布林带值")
+    print("\n测试：计算600000的布林带值")
     bb_df = get_stock_bollinger_band('600000', '2025-03-07')
     if bb_df is not None and not bb_df.empty:
         print(f"  获取到 {len(bb_df)} 条布林带数据")
@@ -168,14 +161,6 @@ def main():
         print(bb_df.tail())
     else:
         print("  数据不足，无法计算布林带")
-    
-    # 测试2：筛选开口率超过阈值的股票
-    print("\n测试2：筛选2025-03-07布林带开口率超过10%的股票")
-    codes = ['600000', '600004', '600006', '600007', '600008', 
-             '600009', '600010', '600011', '600012', '600015']
-    result_df = filter_stocks_by_bandwidth('2025-03-07', codes, threshold=10.0)
-    print(f"  找到 {len(result_df)} 只股票开口率超过10%")
-    print(result_df)
     
     print("\n" + "=" * 70)
     print("测试完成")

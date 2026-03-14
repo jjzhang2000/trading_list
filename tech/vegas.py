@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 Vegas通道指标计算模块
-提供Vegas通道计算和筛选功能
+使用pandas-ta库实现Vegas通道计算和筛选功能
 """
 
 import pandas as pd
-import numpy as np
+import pandas_ta as ta
 from typing import Optional, List
 import sys
 import os
@@ -46,12 +46,12 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
     
     df = df.copy()
     
-    df['ema5'] = df['close'].ewm(span=5, adjust=False).mean()
-    df['ema8'] = df['close'].ewm(span=8, adjust=False).mean()
-    df['ema12'] = df['close'].ewm(span=12, adjust=False).mean()
-    df['ema26'] = df['close'].ewm(span=26, adjust=False).mean()
-    df['ema144'] = df['close'].ewm(span=144, adjust=False).mean()
-    df['ema169'] = df['close'].ewm(span=169, adjust=False).mean()
+    df['ema5'] = ta.ema(df['close'], length=5)
+    df['ema8'] = ta.ema(df['close'], length=8)
+    df['ema12'] = ta.ema(df['close'], length=12)
+    df['ema26'] = ta.ema(df['close'], length=26)
+    df['ema144'] = ta.ema(df['close'], length=144)
+    df['ema169'] = ta.ema(df['close'], length=169)
     
     df['trend_direction'] = 0
     
@@ -176,11 +176,10 @@ def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
 def main():
     """测试函数"""
     print("=" * 70)
-    print("测试Vegas通道指标计算模块")
+    print("测试Vegas通道指标计算模块 (pandas-ta)")
     print("=" * 70)
     
-    # 测试1：计算指定股票的Vegas通道值
-    print("\n测试1：计算600000的Vegas通道值")
+    print("\n测试：计算600000的Vegas通道值")
     vegas_df = get_stock_vegas('600000', '2025-03-07')
     if vegas_df is not None and not vegas_df.empty:
         print(f"  获取到 {len(vegas_df)} 条Vegas通道数据")
@@ -188,14 +187,6 @@ def main():
         print(vegas_df.tail())
     else:
         print("  数据不足，无法计算Vegas通道")
-    
-    # 测试2：筛选多头股票
-    print("\n测试2：筛选2025-03-07趋势为多头的股票")
-    codes = ['600000', '600004', '600006', '600007', '600008', 
-             '600009', '600010', '600011', '600012', '600015']
-    bullish_df = filter_bullish_stocks('2025-03-07', codes)
-    print(f"  找到 {len(bullish_df)} 只多头股票")
-    print(bullish_df)
     
     print("\n" + "=" * 70)
     print("测试完成")

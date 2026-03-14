@@ -2,3 +2,4 @@ pandas
 numpy
 akshare
 python-dotenv
+pandas-ta

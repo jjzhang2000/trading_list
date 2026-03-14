@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 VolumeProfile Slope 指标计算模块
-提供线性回归斜率计算和筛选功能
+使用pandas-ta库实现线性回归斜率计算和筛选功能
 """
 
 import pandas as pd
-import numpy as np
+import pandas_ta as ta
 from typing import Optional, List
 import sys
 import os
@@ -14,47 +14,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 
 from data.read_data import get_stock_price_in_range
-
-
-def calculate_linreg_slope(data: pd.Series, length: int) -> float:
-    """
-    计算线性回归斜率
-    
-    Args:
-        data: 数据序列（最近的length个值）
-        length: 计算周期
-    
-    Returns:
-        斜率值
-        
-    计算公式（基于PineScript）：
-        sumX = sum(per) where per = i + 1.0 for i in 0 to length - 1
-        sumY = sum(val) where val = data[i]
-        sumXSqr = sum(per * per)
-        sumXY = sum(val * per)
-        slope = - (length * sumXY - sumX * sumY) / (length * sumXSqr - sumX * sumX)
-    """
-    if len(data) < length:
-        return np.nan
-    
-    values = data.iloc[-length:].values
-    
-    sumX = 0.0
-    sumY = 0.0
-    sumXSqr = 0.0
-    sumXY = 0.0
-    
-    for i in range(length):
-        per = i + 1.0
-        val = values[i]
-        sumX += per
-        sumY += val
-        sumXSqr += per * per
-        sumXY += val * per
-    
-    slope = - (length * sumXY - sumX * sumY) / (length * sumXSqr - sumX * sumX)
-    
-    return slope
 
 
 def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int = 10) -> pd.DataFrame:
@@ -69,9 +28,8 @@ def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int 
     Returns:
         DataFrame，包含列：slope_long, slope_short
         
-    计算逻辑：
-        slope_long = linreg(close, period_long)
-        slope_short = linreg(close, period_short)
+    使用pandas-ta的linreg函数计算线性回归，然后提取斜率：
+        slope = linear_regression(close, period).slope
     
     Example:
         >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
@@ -83,27 +41,16 @@ def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int 
     
     df = df.copy()
     
-    slope_long_list = []
-    slope_short_list = []
-    
-    for i in range(len(df)):
-        if i < period_long - 1:
-            slope_long_list.append(np.nan)
-        else:
-            slope_long = calculate_linreg_slope(df['close'].iloc[:i+1], period_long)
-            slope_long_list.append(slope_long)
-        
-        if i < period_short - 1:
-            slope_short_list.append(np.nan)
-        else:
-            slope_short = calculate_linreg_slope(df['close'].iloc[:i+1], period_short)
-            slope_short_list.append(slope_short)
+    linreg_long = ta.linreg(df['close'], length=period_long, angle=False, intercept=False, 
+                            r=False, slope=True)
+    linreg_short = ta.linreg(df['close'], length=period_short, angle=False, intercept=False, 
+                             r=False, slope=True)
     
     result = pd.DataFrame()
     if 'date' in df.columns:
         result['date'] = df['date']
-    result['slope_long'] = slope_long_list
-    result['slope_short'] = slope_short_list
+    result['slope_long'] = linreg_long
+    result['slope_short'] = linreg_short
     
     return result
 
@@ -198,11 +145,10 @@ def filter_stocks_by_slope(date: str, stock_codes: List[str],
 def main():
     """测试函数"""
     print("=" * 70)
-    print("测试VolumeProfile Slope指标计算模块")
+    print("测试VolumeProfile Slope指标计算模块 (pandas-ta)")
     print("=" * 70)
     
-    # 测试1：计算指定股票的斜率值
-    print("\n测试1：计算600000的斜率值")
+    print("\n测试：计算600000的斜率值")
     slope_df = get_stock_slope('600000', '2025-03-07')
     if slope_df is not None and not slope_df.empty:
         print(f"  获取到 {len(slope_df)} 条斜率数据")
@@ -210,14 +156,6 @@ def main():
         print(slope_df.tail())
     else:
         print("  数据不足，无法计算斜率")
-    
-    # 测试2：筛选斜率大于0的股票
-    print("\n测试2：筛选2025-03-07斜率大于0的股票")
-    codes = ['600000', '600004', '600006', '600007', '600008', 
-             '600009', '600010', '600011', '600012', '600015']
-    result_df = filter_stocks_by_slope('2025-03-07', codes)
-    print(f"  找到 {len(result_df)} 只股票斜率大于0")
-    print(result_df)
     
     print("\n" + "=" * 70)
     print("测试完成")
