@@ -24,16 +24,16 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
         df: DataFrame，必须包含列：close
     
     Returns:
-        DataFrame，包含列：ema5, ema8, ema12, ema26, ema144, ema169, trend_direction
+        DataFrame，包含列：ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
         
     Vegas通道组成：
-        - 超短期通道：EMA 5, EMA 8
         - 短期通道：EMA 12, EMA 26
-        - 长期通道：EMA 144, EMA 169
+        - 中期通道：EMA 144, EMA 169
+        - 长期通道：EMA 576, EMA 676
         
     趋势判断：
-        - trend_direction = 1: 多头（EMA5 > EMA8 > EMA12 > EMA26 > EMA144 > EMA169）
-        - trend_direction = -1: 空头（EMA5 < EMA8 < EMA12 < EMA26 < EMA144 < EMA169）
+        - trend_direction = 1: 多头（EMA12 > EMA26 > EMA144 > EMA169 > EMA576 > EMA676）
+        - trend_direction = -1: 空头（EMA12 < EMA26 < EMA144 < EMA169 < EMA576 < EMA676）
         - trend_direction = 0: 震荡（其他情况）
     
     Example:
@@ -41,34 +41,34 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
         >>> vegas_df = calculate_vegas(df)
         >>> print(vegas_df.tail())
     """
-    if df.empty or len(df) < 169:
+    if df.empty or len(df) < 676:
         return pd.DataFrame()
     
     df = df.copy()
     
-    df['ema5'] = ta.ema(df['close'], length=5)
-    df['ema8'] = ta.ema(df['close'], length=8)
     df['ema12'] = ta.ema(df['close'], length=12)
     df['ema26'] = ta.ema(df['close'], length=26)
     df['ema144'] = ta.ema(df['close'], length=144)
     df['ema169'] = ta.ema(df['close'], length=169)
+    df['ema576'] = ta.ema(df['close'], length=576)
+    df['ema676'] = ta.ema(df['close'], length=676)
     
     df['trend_direction'] = 0
     
     bullish_mask = (
-        (df['ema5'] > df['ema8']) &
-        (df['ema8'] > df['ema12']) &
         (df['ema12'] > df['ema26']) &
         (df['ema26'] > df['ema144']) &
-        (df['ema144'] > df['ema169'])
+        (df['ema144'] > df['ema169']) &
+        (df['ema169'] > df['ema576']) &
+        (df['ema576'] > df['ema676'])
     )
     
     bearish_mask = (
-        (df['ema5'] < df['ema8']) &
-        (df['ema8'] < df['ema12']) &
         (df['ema12'] < df['ema26']) &
         (df['ema26'] < df['ema144']) &
-        (df['ema144'] < df['ema169'])
+        (df['ema144'] < df['ema169']) &
+        (df['ema169'] < df['ema576']) &
+        (df['ema576'] < df['ema676'])
     )
     
     df.loc[bullish_mask, 'trend_direction'] = 1
@@ -77,28 +77,28 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
     result = pd.DataFrame()
     if 'date' in df.columns:
         result['date'] = df['date']
-    result['ema5'] = df['ema5']
-    result['ema8'] = df['ema8']
     result['ema12'] = df['ema12']
     result['ema26'] = df['ema26']
     result['ema144'] = df['ema144']
     result['ema169'] = df['ema169']
+    result['ema576'] = df['ema576']
+    result['ema676'] = df['ema676']
     result['trend_direction'] = df['trend_direction']
     
     return result
 
 
-def get_stock_vegas(stock_code: str, end_date: str, days: int = 200) -> Optional[pd.DataFrame]:
+def get_stock_vegas(stock_code: str, end_date: str, days: int = 800) -> Optional[pd.DataFrame]:
     """
     计算指定股票的Vegas通道值
     
     Args:
         stock_code: 股票代码（如：600000）
         end_date: 结束日期（YYYY-MM-DD格式）
-        days: 计算天数，默认为200天（需要足够的数据来计算EMA169）
+        days: 计算天数，默认为800天（需要足够的数据来计算EMA676）
     
     Returns:
-        DataFrame，包含列：date, ema5, ema8, ema12, ema26, ema144, ema169, trend_direction
+        DataFrame，包含列：date, ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
         如果数据不足则返回None
     
     Example:
@@ -113,7 +113,7 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 200) -> Optional
     
     df = get_stock_price_in_range(stock_code, start_date, end_date)
     
-    if df.empty or len(df) < 169:
+    if df.empty or len(df) < 676:
         return None
     
     vegas_df = calculate_vegas(df)
@@ -133,7 +133,7 @@ def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
         stock_codes: 股票代码列表
     
     Returns:
-        DataFrame，包含列：stock_code, ema5, ema8, ema12, ema26, ema144, ema169, trend_direction
+        DataFrame，包含列：stock_code, ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
         只包含trend_direction=1的股票
     
     Example:
@@ -149,19 +149,19 @@ def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
         if (i + 1) % 100 == 0:
             print(f"  处理进度: {i + 1}/{len(stock_codes)}")
         
-        vegas_df = get_stock_vegas(code, date, days=200)
+        vegas_df = get_stock_vegas(code, date, days=800)
         
         if vegas_df is not None and not vegas_df.empty:
             last_row = vegas_df.iloc[-1]
             if last_row['trend_direction'] == 1:
                 results.append({
                     'stock_code': code,
-                    'ema5': last_row['ema5'],
-                    'ema8': last_row['ema8'],
                     'ema12': last_row['ema12'],
                     'ema26': last_row['ema26'],
                     'ema144': last_row['ema144'],
                     'ema169': last_row['ema169'],
+                    'ema576': last_row['ema576'],
+                    'ema676': last_row['ema676'],
                     'trend_direction': last_row['trend_direction']
                 })
     

@@ -163,7 +163,7 @@ class StockFilterGUI:
         self.filter_vars = {}
         filters = [
             ('supertrend', 'SuperTrend (多头趋势)'),
-            ('vegas', 'Vegas通道 (多头排列)'),
+            ('vegas', 'Vegas通道 (EMA多头排列)'),
             ('bollingerband', '布林带 (开口率>10%)'),
             ('occross', 'OCC指标 (多头趋势)'),
             ('vp_slope', 'VP Slope (斜率>0)')
