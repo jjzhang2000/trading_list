@@ -16,13 +16,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 from data.read_data import get_stock_price_in_range
 
 
-def calculate_bollinger_band(df: pd.DataFrame, period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
+def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
     """
     计算布林带指标
     
     Args:
         df: DataFrame，必须包含列：close
-        period: 移动平均周期，默认为20
+        period: 移动平均周期，默认为21
         std_dev: 标准差倍数，默认为2.0
     
     Returns:
@@ -64,7 +64,7 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 20, std_dev: float 
 
 
 def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50, 
-                             period: int = 20, std_dev: float = 2.0) -> Optional[pd.DataFrame]:
+                             period: int = 21, std_dev: float = 2.0) -> Optional[pd.DataFrame]:
     """
     计算指定股票的布林带值
     
@@ -72,7 +72,7 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
         stock_code: 股票代码（如：600000）
         end_date: 结束日期（YYYY-MM-DD格式）
         days: 计算天数，默认为50天
-        period: 移动平均周期，默认为20
+        period: 移动平均周期，默认为21
         std_dev: 标准差倍数，默认为2.0
     
     Returns:
@@ -103,7 +103,7 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
 
 
 def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: float,
-                               period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
+                               period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
     """
     筛选指定日期布林带开口率超过阈值的股票
     
@@ -111,7 +111,7 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表
         threshold: 开口率阈值（百分比）
-        period: 移动平均周期，默认为20
+        period: 移动平均周期，默认为21
         std_dev: 标准差倍数，默认为2.0
     
     Returns:
