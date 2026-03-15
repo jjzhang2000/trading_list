@@ -88,26 +88,31 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def get_stock_vegas(stock_code: str, end_date: str, days: int = 800) -> Optional[pd.DataFrame]:
+def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[pd.DataFrame]:
     """
     计算指定股票的Vegas通道值
     
     Args:
         stock_code: 股票代码（如：600000）
         end_date: 结束日期（YYYY-MM-DD格式）
-        days: 计算天数，默认为800天（需要足够的数据来计算EMA676）
+        days: 返回结果天数，默认为50天
     
     Returns:
         DataFrame，包含列：date, close, ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
         如果数据不足则返回None
+    
+    Note:
+        EMA需要足够的历史数据才能收敛到稳定值。
+        EMA676需要至少676条数据才能开始输出有效值。
+        因此内部始终获取足够的数据进行计算，然后返回用户需要的天数。
     """
-    MIN_DATA_BUFFER = 10
-    min_required = days + 676 + MIN_DATA_BUFFER
+    MIN_DATA_BUFFER = 100
+    REQUIRED_DATA = 800
     
-    df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
+    df = get_stock_price_before_date(stock_code, end_date, limit=REQUIRED_DATA)
     
-    if df.empty or len(df) < 676 + MIN_DATA_BUFFER:
-        logger.warning(f"Vegas: 股票 {stock_code} 数据不足 (需要 {676 + MIN_DATA_BUFFER} 条, 实际 {len(df)} 条)")
+    if df.empty or len(df) < REQUIRED_DATA:
+        logger.warning(f"Vegas: 股票 {stock_code} 数据不足 (需要 {REQUIRED_DATA} 条, 实际 {len(df)} 条)")
         return None
     
     vegas_df = calculate_vegas(df)
