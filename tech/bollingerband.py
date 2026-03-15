@@ -83,14 +83,22 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
     df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
     if df.empty or len(df) < period + MIN_DATA_BUFFER:
+        logger.warning(f"布林带: 股票 {stock_code} 数据不足 (需要 {period + MIN_DATA_BUFFER} 条, 实际 {len(df)} 条)")
         return None
     
     bb_df = calculate_bollinger_band(df, period, std_dev)
     
     if bb_df.empty:
+        logger.warning(f"布林带: 股票 {stock_code} 计算结果为空")
         return None
     
-    return bb_df.tail(days)
+    result = bb_df.tail(days)
+    last_row = result.iloc[-1]
+    logger.info(f"布林带: {stock_code} 中轨={last_row['middle_band']:.2f} "
+                f"上轨={last_row['upper_band']:.2f} 下轨={last_row['lower_band']:.2f} "
+                f"开口率={last_row['bandwidth']:.2f}%")
+    
+    return result
 
 
 def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: float,

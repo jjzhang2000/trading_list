@@ -78,14 +78,21 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
     if df.empty or len(df) < period + MIN_DATA_BUFFER:
+        logger.warning(f"SuperTrend: 股票 {stock_code} 数据不足 (需要 {period + MIN_DATA_BUFFER} 条, 实际 {len(df)} 条)")
         return None
     
     st_df = calculate_supertrend(df, period, multiplier)
     
     if st_df.empty:
+        logger.warning(f"SuperTrend: 股票 {stock_code} 计算结果为空")
         return None
     
-    return st_df.tail(days)
+    result = st_df.tail(days)
+    last_row = result.iloc[-1]
+    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
+    logger.info(f"SuperTrend: {stock_code} supertrend={last_row['supertrend']:.2f} 趋势={trend}")
+    
+    return result
 
 
 def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None, 

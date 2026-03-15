@@ -75,14 +75,21 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
     df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
     if df.empty or len(df) < period_long + MIN_DATA_BUFFER:
+        logger.warning(f"VP Slope: 股票 {stock_code} 数据不足 (需要 {period_long + MIN_DATA_BUFFER} 条, 实际 {len(df)} 条)")
         return None
     
     slope_df = calculate_slope(df, period_long, period_short)
     
     if slope_df.empty:
+        logger.warning(f"VP Slope: 股票 {stock_code} 计算结果为空")
         return None
     
-    return slope_df.tail(days)
+    result = slope_df.tail(days)
+    last_row = result.iloc[-1]
+    logger.info(f"VP Slope: {stock_code} 长期斜率={last_row['slope_long']:.4f} "
+                f"短期斜率={last_row['slope_short']:.4f}")
+    
+    return result
 
 
 def filter_stocks_by_slope(date: str, stock_codes: List[str], 

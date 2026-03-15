@@ -107,14 +107,25 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 800) -> Optional
     df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
     if df.empty or len(df) < 676 + MIN_DATA_BUFFER:
+        logger.warning(f"Vegas: 股票 {stock_code} 数据不足 (需要 {676 + MIN_DATA_BUFFER} 条, 实际 {len(df)} 条)")
         return None
     
     vegas_df = calculate_vegas(df)
     
     if vegas_df.empty:
+        logger.warning(f"Vegas: 股票 {stock_code} 计算结果为空")
         return None
     
-    return vegas_df.tail(days)
+    result = vegas_df.tail(days)
+    last_row = result.iloc[-1]
+    trend = "多头排列" if last_row['trend_direction'] == 1 else ("空头排列" if last_row['trend_direction'] == -1 else "震荡")
+    logger.info(f"Vegas: {stock_code} 收盘价={last_row['close']:.2f} "
+                f"EMA12={last_row['ema12']:.2f} EMA26={last_row['ema26']:.2f} "
+                f"EMA144={last_row['ema144']:.2f} EMA169={last_row['ema169']:.2f} "
+                f"EMA576={last_row['ema576']:.2f} EMA676={last_row['ema676']:.2f} "
+                f"趋势={trend}")
+    
+    return result
 
 
 def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
