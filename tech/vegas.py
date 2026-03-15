@@ -103,16 +103,14 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[
     
     Note:
         EMA需要足够的历史数据才能收敛到稳定值。
-        EMA676需要至少676条数据才能开始输出有效值。
-        因此内部始终获取足够的数据进行计算，然后返回用户需要的天数。
+        EMA676需要至少1000+条数据才能收敛，因此获取尽可能多的数据。
     """
-    MIN_DATA_BUFFER = 100
-    REQUIRED_DATA = 800
+    MIN_DATA_REQUIRED = 1000
     
-    df = get_stock_price_before_date(stock_code, end_date, limit=REQUIRED_DATA)
+    df = get_stock_price_before_date(stock_code, end_date, limit=3000)
     
-    if df.empty or len(df) < REQUIRED_DATA:
-        logger.warning(f"Vegas: 股票 {stock_code} 数据不足 (需要 {REQUIRED_DATA} 条, 实际 {len(df)} 条)")
+    if df.empty or len(df) < MIN_DATA_REQUIRED:
+        logger.warning(f"Vegas: 股票 {stock_code} 数据不足 (需要 {MIN_DATA_REQUIRED} 条, 实际 {len(df)} 条)")
         return None
     
     vegas_df = calculate_vegas(df)
