@@ -106,14 +106,16 @@ class StockFilterGUI:
         """
         设置UI界面
         
-        将界面分为三个部分：
+        将界面分为四个部分：
         - 上部：数据操作区
         - 中部：筛选器设置区
         - 下部：股票列表区
+        - 底部：股票查询区
         """
         self.setup_top_frame()
         self.setup_middle_frame()
         self.setup_bottom_frame()
+        self.setup_query_frame()
     
     def cleanup(self):
         """清理资源，在程序退出时调用"""
@@ -214,6 +216,137 @@ class StockFilterGUI:
         
         self.result_count_label = ttk.Label(right_frame, text="共 0 只股票")
         self.result_count_label.pack(anchor=tk.W)
+    
+    def setup_query_frame(self):
+        """
+        设置底部股票查询区
+        
+        包含：
+        - 股票代码输入框
+        - 检测按钮
+        - 5个指标结果显示区
+        """
+        query_frame = ttk.LabelFrame(self.root, text="股票查询", padding=10)
+        query_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        input_frame = ttk.Frame(query_frame)
+        input_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(input_frame, text="股票代码:").pack(side=tk.LEFT)
+        self.query_code_entry = ttk.Entry(input_frame, width=10)
+        self.query_code_entry.pack(side=tk.LEFT, padx=5)
+        
+        self.btn_query = ttk.Button(input_frame, text="检测", width=8, command=self.on_query_stock)
+        self.btn_query.pack(side=tk.LEFT, padx=5)
+        
+        self.query_stock_name_label = ttk.Label(input_frame, text="")
+        self.query_stock_name_label.pack(side=tk.LEFT, padx=10)
+        
+        result_frame = ttk.Frame(query_frame)
+        result_frame.pack(fill=tk.X)
+        
+        self.indicator_labels = {}
+        indicators = [
+            ('supertrend', 'SuperTrend', '多头' if True else '空头'),
+            ('vegas', 'Vegas通道', '多头排列' if True else '空头排列'),
+            ('bollingerband', '布林带', '开口率: 0%'),
+            ('occross', 'OCC指标', '多头' if True else '空头'),
+            ('vp_slope', 'VP Slope', '斜率: 0')
+        ]
+        
+        for name, label, default_value in indicators:
+            frame = ttk.Frame(result_frame)
+            frame.pack(side=tk.LEFT, padx=15)
+            ttk.Label(frame, text=f"{label}:", font=('', 9, 'bold')).pack(side=tk.LEFT)
+            value_label = ttk.Label(frame, text="--", width=15)
+            value_label.pack(side=tk.LEFT)
+            self.indicator_labels[name] = value_label
+    
+    def on_query_stock(self):
+        """
+        检测按钮回调
+        
+        查询指定股票的5个技术指标结果
+        """
+        stock_code = self.query_code_entry.get().strip()
+        if not stock_code:
+            messagebox.showwarning("警告", "请输入股票代码！")
+            return
+        
+        for label in self.indicator_labels.values():
+            label.config(text="--")
+        self.query_stock_name_label.config(text="")
+        
+        if self.is_running:
+            return
+        
+        self.is_running = True
+        self.btn_query.config(state=tk.DISABLED)
+        
+        def run():
+            try:
+                date = datetime.now().strftime('%Y-%m-%d')
+                
+                stock_name = ""
+                if self.stock_list:
+                    for code, name in self.stock_list:
+                        if code == stock_code:
+                            stock_name = name
+                            break
+                
+                if not stock_name:
+                    stock_name = read_data.get_stock_name(stock_code) or ""
+                
+                self.root.after(0, lambda n=stock_name: self.query_stock_name_label.config(text=n))
+                
+                st_df = supertrend.get_stock_supertrend(stock_code, date, days=50)
+                if st_df is not None and not st_df.empty:
+                    last_row = st_df.iloc[-1]
+                    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
+                    self.root.after(0, lambda t=trend: self.indicator_labels['supertrend'].config(text=t))
+                else:
+                    self.root.after(0, lambda: self.indicator_labels['supertrend'].config(text="数据不足"))
+                
+                vegas_df = vegas.get_stock_vegas(stock_code, date, days=50)
+                if vegas_df is not None and not vegas_df.empty:
+                    last_row = vegas_df.iloc[-1]
+                    trend = "多头排列" if last_row['trend_direction'] == 1 else "空头排列"
+                    self.root.after(0, lambda t=trend: self.indicator_labels['vegas'].config(text=t))
+                else:
+                    self.root.after(0, lambda: self.indicator_labels['vegas'].config(text="数据不足"))
+                
+                bb_df = bollingerband.get_stock_bollinger_band(stock_code, date, days=50)
+                if bb_df is not None and not bb_df.empty:
+                    last_row = bb_df.iloc[-1]
+                    bandwidth = last_row['bandwidth']
+                    self.root.after(0, lambda b=bandwidth: self.indicator_labels['bollingerband'].config(text=f"开口率: {b:.2f}%"))
+                else:
+                    self.root.after(0, lambda: self.indicator_labels['bollingerband'].config(text="数据不足"))
+                
+                occ_df = occross.get_stock_occ(stock_code, date, days=50)
+                if occ_df is not None and not occ_df.empty:
+                    last_row = occ_df.iloc[-1]
+                    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
+                    self.root.after(0, lambda t=trend: self.indicator_labels['occross'].config(text=t))
+                else:
+                    self.root.after(0, lambda: self.indicator_labels['occross'].config(text="数据不足"))
+                
+                slope_df = vp_slope.get_stock_slope(stock_code, date, days=50)
+                if slope_df is not None and not slope_df.empty:
+                    last_row = slope_df.iloc[-1]
+                    slope_long = last_row['slope_long']
+                    self.root.after(0, lambda s=slope_long: self.indicator_labels['vp_slope'].config(text=f"斜率: {s:.4f}"))
+                else:
+                    self.root.after(0, lambda: self.indicator_labels['vp_slope'].config(text="数据不足"))
+                
+            except Exception as e:
+                error_msg = str(e)
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"查询失败: {msg}"))
+            finally:
+                self.root.after(0, lambda: self.btn_query.config(state=tk.NORMAL))
+                self.is_running = False
+        
+        threading.Thread(target=run, daemon=True).start()
     
     def log_result(self, message: str):
         """

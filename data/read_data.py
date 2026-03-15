@@ -171,6 +171,31 @@ def get_stock_price_before_date(stock_code: str, end_date: str, limit: int) -> p
         conn.close()
 
 
+def get_stock_name(stock_code: str) -> Optional[str]:
+    """
+    获取股票名称
+    
+    Args:
+        stock_code: 股票代码（如：600000）
+    
+    Returns:
+        股票名称，如果不存在则返回None
+    
+    Example:
+        >>> name = get_stock_name('600000')
+        >>> print(name)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT stock_name FROM stock_info WHERE stock_code = ?", (stock_code,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    finally:
+        conn.close()
+
+
 def calculate_heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
     """
     计算Heikin-Ashi（平均K线）价格序列
