@@ -80,13 +80,16 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     """
     from datetime import datetime, timedelta
     
+    MIN_DATA_BUFFER = 10
+    
     end = datetime.strptime(end_date, '%Y-%m-%d')
     start = end - timedelta(days=days + period * 2)
     start_date = start.strftime('%Y-%m-%d')
     
     df = get_stock_price_in_range(stock_code, start_date, end_date)
     
-    if df.empty or len(df) < period + 10:
+    min_required = period + MIN_DATA_BUFFER
+    if df.empty or len(df) < min_required:
         return None
     
     st_df = calculate_supertrend(df, period, multiplier)
