@@ -53,6 +53,9 @@ import atexit
 
 from data import init_db, extract_data, read_data
 from tech import supertrend, vegas, bollingerband, occross, vp_slope
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class StoppableThread(threading.Thread):
@@ -341,6 +344,7 @@ class StockFilterGUI:
                 
             except Exception as e:
                 error_msg = str(e)
+                logger.error(f"查询失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"查询失败: {msg}"))
             finally:
                 self.root.after(0, lambda: self.btn_query.config(state=tk.NORMAL))
@@ -350,11 +354,12 @@ class StockFilterGUI:
     
     def log_result(self, message: str):
         """
-        在运行结果文本框中记录日志
+        在运行结果文本框中记录日志，同时写入日志文件
         
         Args:
             message: 要记录的消息
         """
+        logger.info(message)
         self.result_text.config(state=tk.NORMAL)
         self.result_text.insert(tk.END, f"[{datetime.now().strftime('%H:%M:%S')}] {message}\n")
         self.result_text.see(tk.END)
@@ -392,6 +397,7 @@ class StockFilterGUI:
                 self.root.after(0, lambda: messagebox.showinfo("成功", "数据库初始化成功！"))
             except Exception as e:
                 error_msg = str(e)
+                logger.error(f"初始化失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: self.log_result(f"初始化失败: {msg}"))
                 self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"初始化失败: {msg}"))
             finally:
@@ -521,6 +527,7 @@ class StockFilterGUI:
                 
             except Exception as e:
                 error_msg = str(e)
+                logger.error(f"提取失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: self.log_result(f"提取失败: {msg}"))
                 self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"提取失败: {msg}"))
             finally:
@@ -632,6 +639,7 @@ class StockFilterGUI:
                 
             except Exception as e:
                 error_msg = str(e)
+                logger.error(f"筛选失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: self.log_result(f"筛选失败: {msg}"))
                 self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"筛选失败: {msg}"))
             finally:
