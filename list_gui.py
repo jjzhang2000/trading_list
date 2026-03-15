@@ -281,6 +281,8 @@ class StockFilterGUI:
             messagebox.showwarning("警告", "请输入股票代码！")
             return
         
+        logger.info(f"开始查询股票: {stock_code}")
+        
         for label in self.indicator_labels.values():
             label.config(text="--")
         self.query_stock_name_label.config(text="")
@@ -305,47 +307,60 @@ class StockFilterGUI:
                 if not stock_name:
                     stock_name = read_data.get_stock_name(stock_code) or ""
                 
+                logger.info(f"股票名称: {stock_name or '未知'}")
                 self.root.after(0, lambda n=stock_name: self.query_stock_name_label.config(text=n))
                 
                 st_df = supertrend.get_stock_supertrend(stock_code, date, days=50)
                 if st_df is not None and not st_df.empty:
                     last_row = st_df.iloc[-1]
                     trend = "多头" if last_row['trend_direction'] == 1 else "空头"
+                    logger.info(f"SuperTrend: {trend}")
                     self.root.after(0, lambda t=trend: self.indicator_labels['supertrend'].config(text=t))
                 else:
+                    logger.warning("SuperTrend: 数据不足")
                     self.root.after(0, lambda: self.indicator_labels['supertrend'].config(text="数据不足"))
                 
                 vegas_df = vegas.get_stock_vegas(stock_code, date, days=50)
                 if vegas_df is not None and not vegas_df.empty:
                     last_row = vegas_df.iloc[-1]
                     trend = "多头排列" if last_row['trend_direction'] == 1 else "空头排列"
+                    logger.info(f"Vegas通道: {trend}")
                     self.root.after(0, lambda t=trend: self.indicator_labels['vegas'].config(text=t))
                 else:
+                    logger.warning("Vegas通道: 数据不足")
                     self.root.after(0, lambda: self.indicator_labels['vegas'].config(text="数据不足"))
                 
                 bb_df = bollingerband.get_stock_bollinger_band(stock_code, date, days=50)
                 if bb_df is not None and not bb_df.empty:
                     last_row = bb_df.iloc[-1]
                     bandwidth = last_row['bandwidth']
+                    logger.info(f"布林带开口率: {bandwidth:.2f}%")
                     self.root.after(0, lambda b=bandwidth: self.indicator_labels['bollingerband'].config(text=f"开口率: {b:.2f}%"))
                 else:
+                    logger.warning("布林带: 数据不足")
                     self.root.after(0, lambda: self.indicator_labels['bollingerband'].config(text="数据不足"))
                 
                 occ_df = occross.get_stock_occ(stock_code, date, days=50)
                 if occ_df is not None and not occ_df.empty:
                     last_row = occ_df.iloc[-1]
                     trend = "多头" if last_row['trend_direction'] == 1 else "空头"
+                    logger.info(f"OCC指标: {trend}")
                     self.root.after(0, lambda t=trend: self.indicator_labels['occross'].config(text=t))
                 else:
+                    logger.warning("OCC指标: 数据不足")
                     self.root.after(0, lambda: self.indicator_labels['occross'].config(text="数据不足"))
                 
                 slope_df = vp_slope.get_stock_slope(stock_code, date, days=50)
                 if slope_df is not None and not slope_df.empty:
                     last_row = slope_df.iloc[-1]
                     slope_long = last_row['slope_long']
+                    logger.info(f"VP Slope: {slope_long:.4f}")
                     self.root.after(0, lambda s=slope_long: self.indicator_labels['vp_slope'].config(text=f"斜率: {s:.4f}"))
                 else:
+                    logger.warning("VP Slope: 数据不足")
                     self.root.after(0, lambda: self.indicator_labels['vp_slope'].config(text="数据不足"))
+                
+                logger.info(f"股票 {stock_code} 查询完成")
                 
             except Exception as e:
                 error_msg = str(e)
