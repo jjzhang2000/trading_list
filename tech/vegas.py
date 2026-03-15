@@ -77,6 +77,8 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
     result = pd.DataFrame()
     if 'date' in df.columns:
         result['date'] = df['date']
+    if 'close' in df.columns:
+        result['close'] = df['close']
     result['ema12'] = df['ema12']
     result['ema26'] = df['ema26']
     result['ema144'] = df['ema144']
@@ -98,7 +100,7 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 800) -> Optional
         days: 计算天数，默认为800天（需要足够的数据来计算EMA676）
     
     Returns:
-        DataFrame，包含列：date, ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
+        DataFrame，包含列：date, close, ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
         如果数据不足则返回None
     
     Example:
@@ -141,6 +143,8 @@ def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
     results = []
     
     print(f"开始计算 {len(stock_codes)} 只股票的Vegas通道...")
+    print(f"{'代码':<8} {'收盘价':>10} {'EMA12':>10} {'EMA26':>10} {'EMA144':>10} {'EMA169':>10} {'EMA576':>10} {'EMA676':>10} {'趋势':<6}")
+    print("-" * 95)
     
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
@@ -150,6 +154,12 @@ def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
         
         if vegas_df is not None and not vegas_df.empty:
             last_row = vegas_df.iloc[-1]
+            trend = "多头" if last_row['trend_direction'] == 1 else ("空头" if last_row['trend_direction'] == -1 else "震荡")
+            
+            print(f"{code:<8} {last_row.get('close', 0):>10.2f} {last_row['ema12']:>10.2f} {last_row['ema26']:>10.2f} "
+                  f"{last_row['ema144']:>10.2f} {last_row['ema169']:>10.2f} {last_row['ema576']:>10.2f} "
+                  f"{last_row['ema676']:>10.2f} {trend:<6}")
+            
             if last_row['trend_direction'] == 1:
                 results.append({
                     'stock_code': code,
@@ -177,7 +187,7 @@ def main():
     print("=" * 70)
     
     print("\n测试：计算600000的Vegas通道值")
-    vegas_df = get_stock_vegas('600000', '2025-03-07')
+    vegas_df = get_stock_vegas('600026', '2025-03-13')
     if vegas_df is not None and not vegas_df.empty:
         print(f"  获取到 {len(vegas_df)} 条Vegas通道数据")
         print("  最近5天的数据:")
