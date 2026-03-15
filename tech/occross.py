@@ -19,14 +19,14 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "ema") -> pd.DataFrame:
+def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "tma") -> pd.DataFrame:
     """
     计算Open/Close Cross (OCC) 指标
     
     Args:
         df: DataFrame，必须包含列：open, close
         period: 移动平均周期，默认为8
-        ma_type: 移动平均类型，默认为ema
+        ma_type: 移动平均类型，默认为tma
     
     Returns:
         DataFrame，包含列：occ_open, occ_close, trend_direction
@@ -82,7 +82,7 @@ def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "ema") -> pd
 
 
 def get_stock_occ(stock_code: str, end_date: str, days: int = 50, 
-                  period: int = 8, ma_type: str = "ema") -> Optional[pd.DataFrame]:
+                  period: int = 8, ma_type: str = "tma") -> Optional[pd.DataFrame]:
     """
     计算指定股票的OCC指标值
     
@@ -122,7 +122,7 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
 
 
 def filter_bullish_stocks(date: str, stock_codes: List[str], 
-                          period: int = 8, ma_type: str = "ema") -> pd.DataFrame:
+                          period: int = 8, ma_type: str = "tma") -> pd.DataFrame:
     """
     筛选指定日期OCC为多头（trend_direction=1）的股票
     
