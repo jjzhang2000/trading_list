@@ -11,9 +11,12 @@ from typing import Optional, List
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from data.read_data import get_stock_price_before_date, get_all_stock_codes
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def calculate_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
@@ -31,11 +34,6 @@ def calculate_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float =
     使用pandas-ta的supertrend函数计算，返回：
         - supertrend: SuperTrend线值
         - trend_direction: 1表示多头，-1表示空头
-    
-    Example:
-        >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
-        >>> st_df = calculate_supertrend(df)
-        >>> print(st_df.tail())
     """
     if df.empty or len(df) < period:
         return pd.DataFrame()
@@ -73,10 +71,6 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     Returns:
         DataFrame，包含列：date, supertrend, trend_direction
         如果数据不足则返回None
-    
-    Example:
-        >>> st_df = get_stock_supertrend('600000', '2025-03-07')
-        >>> print(st_df.tail())
     """
     MIN_DATA_BUFFER = 10
     min_required = days + period + MIN_DATA_BUFFER
@@ -108,10 +102,6 @@ def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None,
     Returns:
         DataFrame，包含列：stock_code, supertrend, trend_direction
         只包含trend_direction=1的股票
-    
-    Example:
-        >>> bullish_df = filter_bullish_stocks('2025-03-07')
-        >>> print(bullish_df.head())
     """
     if stock_codes is None:
         stock_codes = get_all_stock_codes()
@@ -120,7 +110,7 @@ def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None,
     
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
-            print(f"  处理进度: {i + 1}/{len(stock_codes)}")
+            logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
         
         st_df = get_stock_supertrend(code, date, days=50, period=period, multiplier=multiplier)
         
@@ -143,22 +133,22 @@ def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None,
 
 def main():
     """测试函数"""
-    print("=" * 70)
-    print("测试SuperTrend指标计算模块 (pandas-ta)")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试SuperTrend指标计算模块 (pandas-ta)")
+    logger.info("=" * 70)
     
-    print("\n测试：计算600000的SuperTrend值")
+    logger.info("测试：计算600000的SuperTrend值")
     st_df = get_stock_supertrend('600000', '2025-03-07')
     if st_df is not None and not st_df.empty:
-        print(f"  获取到 {len(st_df)} 条SuperTrend数据")
-        print("  最近5天的数据:")
-        print(st_df.tail())
+        logger.info(f"  获取到 {len(st_df)} 条SuperTrend数据")
+        logger.info("  最近5天的数据:")
+        logger.info(f"\n{st_df.tail()}")
     else:
-        print("  数据不足，无法计算SuperTrend")
+        logger.warning("  数据不足，无法计算SuperTrend")
     
-    print("\n" + "=" * 70)
-    print("测试完成")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试完成")
+    logger.info("=" * 70)
 
 
 if __name__ == '__main__':

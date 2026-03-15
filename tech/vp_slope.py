@@ -11,9 +11,12 @@ from typing import Optional, List
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from data.read_data import get_stock_price_before_date
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int = 10) -> pd.DataFrame:
@@ -30,11 +33,6 @@ def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int 
         
     使用pandas-ta的linreg函数计算线性回归，然后提取斜率：
         slope = linear_regression(close, period).slope
-    
-    Example:
-        >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
-        >>> slope_df = calculate_slope(df)
-        >>> print(slope_df.tail())
     """
     if df.empty or len(df) < period_long:
         return pd.DataFrame()
@@ -70,10 +68,6 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
     Returns:
         DataFrame，包含列：date, slope_long, slope_short
         如果数据不足则返回None
-    
-    Example:
-        >>> slope_df = get_stock_slope('600000', '2025-03-07')
-        >>> print(slope_df.tail())
     """
     MIN_DATA_BUFFER = 10
     min_required = days + period_long + MIN_DATA_BUFFER
@@ -105,19 +99,14 @@ def filter_stocks_by_slope(date: str, stock_codes: List[str],
     Returns:
         DataFrame，包含列：stock_code, slope_long, slope_short
         只包含slope_long > 0的股票
-    
-    Example:
-        >>> codes = ['600000', '600004', '600006']
-        >>> result_df = filter_stocks_by_slope('2025-03-07', codes)
-        >>> print(result_df)
     """
     results = []
     
-    print(f"开始计算 {len(stock_codes)} 只股票的斜率...")
+    logger.info(f"开始计算 {len(stock_codes)} 只股票的斜率...")
     
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
-            print(f"  处理进度: {i + 1}/{len(stock_codes)}")
+            logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
         
         slope_df = get_stock_slope(code, date, days=150, 
                                    period_long=period_long, period_short=period_short)
@@ -141,22 +130,22 @@ def filter_stocks_by_slope(date: str, stock_codes: List[str],
 
 def main():
     """测试函数"""
-    print("=" * 70)
-    print("测试VolumeProfile Slope指标计算模块 (pandas-ta)")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试VolumeProfile Slope指标计算模块 (pandas-ta)")
+    logger.info("=" * 70)
     
-    print("\n测试：计算600000的斜率值")
+    logger.info("测试：计算600000的斜率值")
     slope_df = get_stock_slope('600000', '2025-03-07')
     if slope_df is not None and not slope_df.empty:
-        print(f"  获取到 {len(slope_df)} 条斜率数据")
-        print("  最近5天的数据:")
-        print(slope_df.tail())
+        logger.info(f"  获取到 {len(slope_df)} 条斜率数据")
+        logger.info("  最近5天的数据:")
+        logger.info(f"\n{slope_df.tail()}")
     else:
-        print("  数据不足，无法计算斜率")
+        logger.warning("  数据不足，无法计算斜率")
     
-    print("\n" + "=" * 70)
-    print("测试完成")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试完成")
+    logger.info("=" * 70)
 
 
 if __name__ == '__main__':

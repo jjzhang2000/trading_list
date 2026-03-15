@@ -11,9 +11,12 @@ from typing import Optional, List
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from data.read_data import get_stock_price_before_date
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "ema") -> pd.DataFrame:
@@ -33,11 +36,6 @@ def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "ema") -> pd
         occ_close = ma(close, period, ma_type)
         trend_direction = 1 (多头) 如果 occ_close > occ_open
                         = -1 (空头) 如果 occ_close < occ_open
-    
-    Example:
-        >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
-        >>> occ_df = calculate_occ(df)
-        >>> print(occ_df.tail())
     """
     if df.empty or len(df) < period:
         return pd.DataFrame()
@@ -98,10 +96,6 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
     Returns:
         DataFrame，包含列：date, occ_open, occ_close, trend_direction
         如果数据不足则返回None
-    
-    Example:
-        >>> occ_df = get_stock_occ('600000', '2025-03-07')
-        >>> print(occ_df.tail())
     """
     MIN_DATA_BUFFER = 10
     min_required = days + period + MIN_DATA_BUFFER
@@ -133,19 +127,14 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
     Returns:
         DataFrame，包含列：stock_code, occ_open, occ_close, trend_direction
         只包含trend_direction=1的股票
-    
-    Example:
-        >>> codes = ['600000', '600004', '600006']
-        >>> bullish_df = filter_bullish_stocks('2025-03-07', codes)
-        >>> print(bullish_df)
     """
     results = []
     
-    print(f"开始计算 {len(stock_codes)} 只股票的OCC指标...")
+    logger.info(f"开始计算 {len(stock_codes)} 只股票的OCC指标...")
     
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
-            print(f"  处理进度: {i + 1}/{len(stock_codes)}")
+            logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
         
         occ_df = get_stock_occ(code, date, days=50, period=period, ma_type=ma_type)
         
@@ -169,22 +158,22 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
 
 def main():
     """测试函数"""
-    print("=" * 70)
-    print("测试OCC指标计算模块 (pandas-ta)")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试OCC指标计算模块 (pandas-ta)")
+    logger.info("=" * 70)
     
-    print("\n测试：计算600000的OCC指标值")
+    logger.info("测试：计算600000的OCC指标值")
     occ_df = get_stock_occ('600000', '2025-03-07')
     if occ_df is not None and not occ_df.empty:
-        print(f"  获取到 {len(occ_df)} 条OCC数据")
-        print("  最近5天的数据:")
-        print(occ_df.tail())
+        logger.info(f"  获取到 {len(occ_df)} 条OCC数据")
+        logger.info("  最近5天的数据:")
+        logger.info(f"\n{occ_df.tail()}")
     else:
-        print("  数据不足，无法计算OCC指标")
+        logger.warning("  数据不足，无法计算OCC指标")
     
-    print("\n" + "=" * 70)
-    print("测试完成")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试完成")
+    logger.info("=" * 70)
 
 
 if __name__ == '__main__':

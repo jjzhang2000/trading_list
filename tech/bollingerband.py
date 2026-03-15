@@ -11,9 +11,12 @@ from typing import Optional, List
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from data.read_data import get_stock_price_before_date
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
@@ -33,11 +36,6 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float 
         - 上轨 = 中轨 + N × 标准差
         - 下轨 = 中轨 - N × 标准差
         - 开口率 = (上轨 - 下轨) / 中轨 × 100%
-    
-    Example:
-        >>> df = get_stock_price_in_range('600000', '2025-01-01', '2025-03-07')
-        >>> bb_df = calculate_bollinger_band(df)
-        >>> print(bb_df.tail())
     """
     if df.empty or len(df) < period:
         return pd.DataFrame()
@@ -78,10 +76,6 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
     Returns:
         DataFrame，包含列：date, middle_band, upper_band, lower_band, bandwidth
         如果数据不足则返回None
-    
-    Example:
-        >>> bb_df = get_stock_bollinger_band('600000', '2025-03-07')
-        >>> print(bb_df.tail())
     """
     MIN_DATA_BUFFER = 10
     min_required = days + period + MIN_DATA_BUFFER
@@ -114,19 +108,14 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
     Returns:
         DataFrame，包含列：stock_code, middle_band, upper_band, lower_band, bandwidth
         只包含bandwidth > threshold的股票，按bandwidth降序排列
-    
-    Example:
-        >>> codes = ['600000', '600004', '600006']
-        >>> result_df = filter_stocks_by_bandwidth('2025-03-07', codes, threshold=10.0)
-        >>> print(result_df)
     """
     results = []
     
-    print(f"开始计算 {len(stock_codes)} 只股票的布林带...")
+    logger.info(f"开始计算 {len(stock_codes)} 只股票的布林带...")
     
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
-            print(f"  处理进度: {i + 1}/{len(stock_codes)}")
+            logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
         
         bb_df = get_stock_bollinger_band(code, date, days=50, period=period, std_dev=std_dev)
         
@@ -151,22 +140,22 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
 
 def main():
     """测试函数"""
-    print("=" * 70)
-    print("测试布林带指标计算模块 (pandas-ta)")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试布林带指标计算模块 (pandas-ta)")
+    logger.info("=" * 70)
     
-    print("\n测试：计算600000的布林带值")
+    logger.info("测试：计算600000的布林带值")
     bb_df = get_stock_bollinger_band('600000', '2025-03-07')
     if bb_df is not None and not bb_df.empty:
-        print(f"  获取到 {len(bb_df)} 条布林带数据")
-        print("  最近5天的数据:")
-        print(bb_df.tail())
+        logger.info(f"  获取到 {len(bb_df)} 条布林带数据")
+        logger.info("  最近5天的数据:")
+        logger.info(f"\n{bb_df.tail()}")
     else:
-        print("  数据不足，无法计算布林带")
+        logger.warning("  数据不足，无法计算布林带")
     
-    print("\n" + "=" * 70)
-    print("测试完成")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("测试完成")
+    logger.info("=" * 70)
 
 
 if __name__ == '__main__':
