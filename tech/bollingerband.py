@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 
-from data.read_data import get_stock_price_in_range
+from data.read_data import get_stock_price_before_date
 
 
 def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
@@ -83,15 +83,12 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
         >>> bb_df = get_stock_bollinger_band('600000', '2025-03-07')
         >>> print(bb_df.tail())
     """
-    from datetime import datetime, timedelta
+    MIN_DATA_BUFFER = 10
+    min_required = days + period + MIN_DATA_BUFFER
     
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    start = end - timedelta(days=days + period)
-    start_date = start.strftime('%Y-%m-%d')
+    df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
-    df = get_stock_price_in_range(stock_code, start_date, end_date)
-    
-    if df.empty or len(df) < period:
+    if df.empty or len(df) < period + MIN_DATA_BUFFER:
         return None
     
     bb_df = calculate_bollinger_band(df, period, std_dev)
@@ -99,7 +96,7 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
     if bb_df.empty:
         return None
     
-    return bb_df
+    return bb_df.tail(days)
 
 
 def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: float,

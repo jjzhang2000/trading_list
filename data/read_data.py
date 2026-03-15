@@ -128,6 +128,49 @@ def get_stock_price_in_range(stock_code: str, start_date: str, end_date: str) ->
         conn.close()
 
 
+def get_stock_price_before_date(stock_code: str, end_date: str, limit: int) -> pd.DataFrame:
+    """
+    获取指定股票在结束日期之前的N条数据
+    
+    Args:
+        stock_code: 股票代码（如：600000）
+        end_date: 结束日期（YYYY-MM-DD格式）
+        limit: 获取的数据条数
+    
+    Returns:
+        DataFrame，包含日期、开盘价、最高价、最低价、收盘价、交易量
+    
+    Example:
+        >>> df = get_stock_price_before_date('600000', '2025-03-07', 100)
+        >>> print(df.head())
+    """
+    conn = sqlite3.connect(DB_PATH)
+    
+    try:
+        query = """
+            SELECT date, open, high, low, close, volume
+            FROM stock_daily
+            WHERE stock_code = ? AND date <= ?
+            ORDER BY date DESC
+            LIMIT ?
+        """
+        
+        df = pd.read_sql_query(query, conn, params=(stock_code, end_date, limit))
+        
+        if not df.empty:
+            df = df.iloc[::-1].reset_index(drop=True)
+            df['date'] = pd.to_datetime(df['date'])
+            df['open'] = df['open'].astype(float)
+            df['high'] = df['high'].astype(float)
+            df['low'] = df['low'].astype(float)
+            df['close'] = df['close'].astype(float)
+            df['volume'] = df['volume'].astype(int)
+        
+        return df
+    finally:
+        conn.close()
+
+
 def calculate_heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
     """
     计算Heikin-Ashi（平均K线）价格序列

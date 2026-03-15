@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 
-from data.read_data import get_stock_price_in_range, get_all_stock_codes
+from data.read_data import get_stock_price_before_date, get_all_stock_codes
 
 
 def calculate_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
@@ -78,18 +78,12 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
         >>> st_df = get_stock_supertrend('600000', '2025-03-07')
         >>> print(st_df.tail())
     """
-    from datetime import datetime, timedelta
-    
     MIN_DATA_BUFFER = 10
+    min_required = days + period + MIN_DATA_BUFFER
     
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    start = end - timedelta(days=days + period * 2)
-    start_date = start.strftime('%Y-%m-%d')
+    df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
-    df = get_stock_price_in_range(stock_code, start_date, end_date)
-    
-    min_required = period + MIN_DATA_BUFFER
-    if df.empty or len(df) < min_required:
+    if df.empty or len(df) < period + MIN_DATA_BUFFER:
         return None
     
     st_df = calculate_supertrend(df, period, multiplier)
@@ -97,7 +91,7 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     if st_df.empty:
         return None
     
-    return st_df
+    return st_df.tail(days)
 
 
 def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None, 

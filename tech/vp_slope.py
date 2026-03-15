@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'data'))
 
-from data.read_data import get_stock_price_in_range
+from data.read_data import get_stock_price_before_date
 
 
 def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int = 10) -> pd.DataFrame:
@@ -75,15 +75,12 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
         >>> slope_df = get_stock_slope('600000', '2025-03-07')
         >>> print(slope_df.tail())
     """
-    from datetime import datetime, timedelta
+    MIN_DATA_BUFFER = 10
+    min_required = days + period_long + MIN_DATA_BUFFER
     
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    start = end - timedelta(days=days + period_long)
-    start_date = start.strftime('%Y-%m-%d')
+    df = get_stock_price_before_date(stock_code, end_date, limit=min_required)
     
-    df = get_stock_price_in_range(stock_code, start_date, end_date)
-    
-    if df.empty or len(df) < period_long:
+    if df.empty or len(df) < period_long + MIN_DATA_BUFFER:
         return None
     
     slope_df = calculate_slope(df, period_long, period_short)
@@ -91,7 +88,7 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
     if slope_df.empty:
         return None
     
-    return slope_df
+    return slope_df.tail(days)
 
 
 def filter_stocks_by_slope(date: str, stock_codes: List[str], 
