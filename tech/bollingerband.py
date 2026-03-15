@@ -29,7 +29,7 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float 
         std_dev: 标准差倍数，默认为2.0
     
     Returns:
-        DataFrame，包含列：middle_band, upper_band, lower_band, bandwidth
+        DataFrame，包含列：middle_band, upper_band, lower_band, bandwidth, close
         
     使用pandas-ta的bbands函数计算：
         - 中轨 = 移动平均线（MA）
@@ -58,6 +58,9 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float 
     result['lower_band'] = bb_df[bbl_col]
     result['bandwidth'] = bb_df[bbb_col]
     
+    if 'close' in df.columns:
+        result['close'] = df['close']
+    
     return result
 
 
@@ -74,7 +77,7 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
         std_dev: 标准差倍数，默认为2.0
     
     Returns:
-        DataFrame，包含列：date, middle_band, upper_band, lower_band, bandwidth
+        DataFrame，包含列：date, close, middle_band, upper_band, lower_band, bandwidth
         如果数据不足则返回None
     """
     MIN_DATA_BUFFER = 10
@@ -94,7 +97,8 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
     
     result = bb_df.tail(days)
     last_row = result.iloc[-1]
-    logger.info(f"布林带: {stock_code} 中轨={last_row['middle_band']:.2f} "
+    logger.info(f"布林带: {stock_code} 收盘价={last_row['close']:.2f} "
+                f"中轨={last_row['middle_band']:.2f} "
                 f"上轨={last_row['upper_band']:.2f} 下轨={last_row['lower_band']:.2f} "
                 f"开口率={last_row['bandwidth']:.2f}%")
     
@@ -104,7 +108,7 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
 def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: float,
                                period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
     """
-    筛选指定日期布林带开口率超过阈值的股票
+    筛选指定日期布林带开口率超过阈值且收盘价高于中轨的股票
     
     Args:
         date: 日期（YYYY-MM-DD格式）
@@ -114,8 +118,8 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
         std_dev: 标准差倍数，默认为2.0
     
     Returns:
-        DataFrame，包含列：stock_code, middle_band, upper_band, lower_band, bandwidth
-        只包含bandwidth > threshold的股票，按bandwidth降序排列
+        DataFrame，包含列：stock_code, close, middle_band, upper_band, lower_band, bandwidth
+        只包含 bandwidth > threshold 且 close > middle_band 的股票，按bandwidth降序排列
     """
     results = []
     
@@ -130,13 +134,15 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
         if bb_df is not None and not bb_df.empty:
             last_row = bb_df.iloc[-1]
             if pd.notna(last_row['bandwidth']) and last_row['bandwidth'] > threshold:
-                results.append({
-                    'stock_code': code,
-                    'middle_band': last_row['middle_band'],
-                    'upper_band': last_row['upper_band'],
-                    'lower_band': last_row['lower_band'],
-                    'bandwidth': last_row['bandwidth']
-                })
+                if last_row['close'] > last_row['middle_band']:
+                    results.append({
+                        'stock_code': code,
+                        'close': last_row['close'],
+                        'middle_band': last_row['middle_band'],
+                        'upper_band': last_row['upper_band'],
+                        'lower_band': last_row['lower_band'],
+                        'bandwidth': last_row['bandwidth']
+                    })
     
     result_df = pd.DataFrame(results)
     
