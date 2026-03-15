@@ -125,6 +125,11 @@ class StockFilterGUI:
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.stop()
             self.worker_thread.join(timeout=1.0)
+        
+        import logging
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+            handler.close()
     
     def setup_top_frame(self):
         """

@@ -55,7 +55,13 @@ def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     log_filename = datetime.now().strftime('%Y-%m-%d.log')
     log_filepath = os.path.join(LOG_DIR, log_filename)
     
-    file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
+    # 创建立即刷新的文件处理器，确保日志实时写入
+    class ImmediateFileHandler(logging.FileHandler):
+        def emit(self, record):
+            super().emit(record)
+            self.flush()
+    
+    file_handler = ImmediateFileHandler(log_filepath, encoding='utf-8')
     file_handler.setLevel(level)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
