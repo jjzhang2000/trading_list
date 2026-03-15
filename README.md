@@ -1,4 +1,4 @@
-﻿# 股票分析项目
+# 股票分析项目
 
 ## 项目概述
 
@@ -83,7 +83,6 @@ trading_list/
 - **核心函数**：
   - `calculate_supertrend()`: 计算SuperTrend指标
   - `get_stock_supertrend()`: 获取指定股票的SuperTrend值
-  - `get_all_stocks_supertrend()`: 获取所有股票的SuperTrend值
   - `filter_bullish_stocks()`: 筛选多头趋势股票
 
 - **计算参数**：

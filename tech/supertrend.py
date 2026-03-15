@@ -97,46 +97,6 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     return st_df
 
 
-def get_all_stocks_supertrend(date: str, period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
-    """
-    计算指定日期所有股票的SuperTrend值
-    
-    Args:
-        date: 日期（YYYY-MM-DD格式）
-        period: ATR计算周期，默认为10
-        multiplier: ATR乘数，默认为3.0
-    
-    Returns:
-        DataFrame，包含列：stock_code, supertrend, trend_direction
-    
-    Example:
-        >>> st_df = get_all_stocks_supertrend('2025-03-07')
-        >>> print(st_df.head())
-    """
-    codes = get_all_stock_codes()
-    results = []
-    
-    print(f"开始计算 {len(codes)} 只股票的SuperTrend值...")
-    
-    for i, code in enumerate(codes):
-        if (i + 1) % 100 == 0:
-            print(f"  处理进度: {i + 1}/{len(codes)}")
-        
-        st_df = get_stock_supertrend(code, date, days=50, period=period, multiplier=multiplier)
-        
-        if st_df is not None and not st_df.empty:
-            last_row = st_df.iloc[-1]
-            results.append({
-                'stock_code': code,
-                'supertrend': last_row['supertrend'],
-                'trend_direction': last_row['trend_direction']
-            })
-    
-    result_df = pd.DataFrame(results)
-    
-    return result_df
-
-
 def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None, 
                           period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
     """
