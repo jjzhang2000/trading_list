@@ -52,7 +52,7 @@ from typing import List, Optional
 import atexit
 
 from data import init_db, extract_data, read_data
-from tech import supertrend, vegas, bollingerband, occross, vp_slope
+from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -568,8 +568,13 @@ class StockFilterGUI:
     def update_result_list(self):
         """更新右侧筛选结果列表显示"""
         self.result_listbox.delete(0, tk.END)
-        for code, name in self.filtered_list:
-            display_text = f"{code} - {name}" if name else code
+        for item in self.filtered_list:
+            if len(item) == 3:
+                code, name, score = item
+                display_text = f"{score:.2f}  {code}  {name}" if name else f"{score:.2f}  {code}"
+            else:
+                code, name = item
+                display_text = f"{code} - {name}" if name else code
             self.result_listbox.insert(tk.END, display_text)
         self.result_count_label.config(text=f"共 {len(self.filtered_list)} 只股票")
     
@@ -652,10 +657,24 @@ class StockFilterGUI:
                     codes = df['stock_code'].tolist() if not df.empty else []
                     self.root.after(0, lambda c=len(codes): self.log_result(f"VP Slope筛选 - 输出: {c} 只股票"))
                 
-                codes.sort()
-                self.filtered_list = [(code, code_to_name.get(code, '')) for code in codes]
-                self.root.after(0, self.update_result_list)
-                self.root.after(0, lambda: self.log_result(f"筛选完成！共 {len(codes)} 只股票符合条件"))
+                if codes:
+                    self.root.after(0, lambda: self.log_result(f"计算趋势强度评分..."))
+                    strength_df = trend_score.rank_stocks_by_strength(codes, date)
+                    
+                    if not strength_df.empty:
+                        self.filtered_list = [
+                            (row['stock_code'], row['stock_name'], row['strength_score'])
+                            for _, row in strength_df.iterrows()
+                        ]
+                        self.root.after(0, self.update_result_list)
+                        self.root.after(0, lambda: self.log_result(f"筛选完成！共 {len(codes)} 只股票符合条件"))
+                    else:
+                        codes.sort()
+                        self.filtered_list = [(code, code_to_name.get(code, ''), 0) for code in codes]
+                        self.root.after(0, self.update_result_list)
+                        self.root.after(0, lambda: self.log_result(f"筛选完成！共 {len(codes)} 只股票符合条件"))
+                else:
+                    self.root.after(0, lambda: self.log_result("筛选结果为空"))
                 
             except Exception as e:
                 error_msg = str(e)
