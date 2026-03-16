@@ -637,6 +637,18 @@ class StockFilterGUI:
                 codes = [code for code, name in self.stock_list]
                 code_to_name = {code: name for code, name in self.stock_list}
                 
+                self.root.after(0, lambda: self.log_result(f"过滤ST股票..."))
+                st_count = 0
+                filtered_codes = []
+                for code in codes:
+                    name = code_to_name.get(code, '')
+                    if 'ST' in name.upper():
+                        st_count += 1
+                    else:
+                        filtered_codes.append(code)
+                codes = filtered_codes
+                self.root.after(0, lambda s=st_count, c=len(codes): self.log_result(f"过滤掉 {s} 只ST股票，剩余 {c} 只"))
+                
                 if 'supertrend' in active_filters:
                     self.root.after(0, lambda: self.log_result(f"SuperTrend筛选 - 输入: {len(codes)} 只股票"))
                     df = supertrend.filter_bullish_stocks(date, stock_codes=codes)

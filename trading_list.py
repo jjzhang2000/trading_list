@@ -117,6 +117,18 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
     
     codes = all_codes
     
+    logger.info("过滤ST股票...")
+    st_count = 0
+    filtered_codes = []
+    for code in codes:
+        name = get_stock_name(code) or ''
+        if 'ST' in name.upper():
+            st_count += 1
+        else:
+            filtered_codes.append(code)
+    logger.info(f"过滤掉 {st_count} 只ST股票，剩余 {len(filtered_codes)} 只")
+    codes = filtered_codes
+    
     codes = filter_by_supertrend(date, codes)
     if not codes:
         logger.info("筛选结果为空，程序结束")
