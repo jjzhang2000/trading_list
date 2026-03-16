@@ -691,6 +691,11 @@ class StockFilterGUI:
                     if not strength_df.empty:
                         strength_df['is_shareholding'] = strength_df['stock_code'].isin(shareholding)
                         
+                        strength_df['stock_name'] = strength_df.apply(
+                            lambda row: f"*{row['stock_name']}" if row['is_shareholding'] and row['stock_name'] else row['stock_name'],
+                            axis=1
+                        )
+                        
                         self.filtered_list = [
                             (row['stock_code'], row['stock_name'], row['strength_score'], row['is_shareholding'])
                             for _, row in strength_df.iterrows()

@@ -156,10 +156,16 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
     if not strength_df.empty:
         strength_df['is_shareholding'] = strength_df['stock_code'].isin(shareholding)
         
+        strength_df['stock_name'] = strength_df.apply(
+            lambda row: f"*{row['stock_name']}" if row['is_shareholding'] and row['stock_name'] else row['stock_name'],
+            axis=1
+        )
+        
         logger.info(f"最终结果 ({len(all_result_codes)} 只，按趋势强度降序排列):")
         for _, row in strength_df.iterrows():
             mark = "★" if row['is_shareholding'] else " "
-            logger.info(f"  {row['rank']:3d}. {mark} {row['stock_code']} {row['stock_name']}: "
+            display_name = row['stock_name'].lstrip('*') if row['stock_name'].startswith('*') else row['stock_name']
+            logger.info(f"  {row['rank']:3d}. {mark} {row['stock_code']} {display_name}: "
                         f"{row['strength_score']:.2f}分 ({trend_score.get_strength_label(row['strength_score'])})")
         
         save_to_csv(strength_df, date)
