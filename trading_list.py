@@ -93,18 +93,11 @@ def filter_by_vp_slope(date: str, stock_codes: List[str]) -> List[str]:
 def save_to_csv(df, date: str) -> str:
     """保存结果到CSV文件"""
     log_dir = get_log_dir()
-    filename = f"listing-{date}.csv"
+    timestamp = datetime.now().strftime('%H%M%S')
+    filename = f"listing-{date}_{timestamp}.csv"
     filepath = os.path.join(log_dir, filename)
     
-    try:
-        df.to_csv(filepath, index=False, encoding='utf-8-sig')
-    except PermissionError:
-        from datetime import datetime
-        timestamp = datetime.now().strftime('%H%M%S')
-        filename = f"listing-{date}_{timestamp}.csv"
-        filepath = os.path.join(log_dir, filename)
-        df.to_csv(filepath, index=False, encoding='utf-8-sig')
-    
+    df.to_csv(filepath, index=False, encoding='utf-8-sig')
     logger.info(f"结果已保存到: {filepath}")
     
     return filepath
