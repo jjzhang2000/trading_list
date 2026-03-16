@@ -2,6 +2,39 @@
 # -*- coding: utf-8 -*-
 """
 股票筛选主程序（命令行版本）
+
+功能说明：
+    基于技术指标的股票筛选程序，通过命令行运行。
+
+筛选流程：
+    1. 获取所有上证A股股票代码
+    2. 过滤ST股票
+    3. 按顺序执行5个技术指标筛选
+    4. 加入持仓股票
+    5. 计算趋势强度评分
+    6. 输出结果到CSV文件
+
+使用方法：
+    # 默认跳过数据更新，直接筛选
+    python trading_list.py
+    
+    # 更新数据后筛选
+    python trading_list.py --update
+    
+    # 指定日期筛选
+    python trading_list.py -d 2025-03-07
+    
+    # 完整参数
+    python trading_list.py -d 2025-03-07 -b 10.0 --update
+
+命令行参数：
+    -d, --date       筛选日期（YYYY-MM-DD格式，默认今天）
+    -b, --bandwidth  布林带开口率阈值（默认10.0）
+    -p, --proxy      代理服务器地址
+    --update         更新股票数据（默认跳过）
+
+输出文件：
+    logs/listing-YYYY-MM-DD_HHMMSS.csv
 """
 
 import argparse
