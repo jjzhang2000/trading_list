@@ -26,7 +26,7 @@ def calculate_trend_strength(stock_code: str, date: str) -> Optional[Dict]:
     
     强度指标：
     1. SuperTrend: 收盘价高于supertrend线的幅度 (%)
-    2. Vegas通道: 收盘价高于EMA676的幅度 (%) - 代表长期趋势强度
+    2. Vegas通道: 收盘价高于EMA144的幅度 (%) - 代表中期趋势强度
     3. 布林带: 开口率 (%) - 开口越大波动越大趋势越强
     4. OCC: occ_close高于occ_open的幅度 (%)
     5. VP Slope: 长期斜率值 - 斜率越大趋势越强
@@ -60,9 +60,9 @@ def calculate_trend_strength(stock_code: str, date: str) -> Optional[Dict]:
     if vegas_df is not None and not vegas_df.empty:
         last_row = vegas_df.iloc[-1]
         close = last_row['close']
-        ema676 = last_row['ema676']
-        if ema676 > 0 and close > 0:
-            metrics['vegas_above_pct'] = (close - ema676) / ema676 * 100
+        ema144 = last_row['ema144']
+        if ema144 > 0 and close > 0:
+            metrics['vegas_above_pct'] = (close - ema144) / ema144 * 100
         else:
             metrics['vegas_above_pct'] = 0
         metrics['vegas_trend'] = '多头排列' if last_row['trend_direction'] == 1 else ('震荡' if last_row['trend_direction'] == 0 else '空头排列')
@@ -210,7 +210,7 @@ def main():
             logger.info(f"  {row['rank']}. {row['stock_code']} {row['stock_name']}: "
                         f"{row['strength_score']:.2f}分 ({get_strength_label(row['strength_score'])})")
             logger.info(f"     SuperTrend高于: {row['st_above_pct']:.2f}%, "
-                        f"Vegas高于EMA676: {row['vegas_above_pct']:.2f}%, "
+                        f"Vegas高于EMA144: {row['vegas_above_pct']:.2f}%, "
                         f"布林带开口率: {row['bandwidth']:.2f}%")
             logger.info(f"     OCC高于: {row['occ_above_pct']:.2f}%, "
                         f"VP Slope: {row['slope_long']:.4f}")
