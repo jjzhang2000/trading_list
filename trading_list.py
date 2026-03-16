@@ -5,13 +5,14 @@
 """
 
 import argparse
+import os
 from datetime import datetime
 from typing import List, Optional
 
-from utils.logger import get_logger
+from utils.logger import get_logger, get_log_dir
 from data.read_data import get_all_stock_codes
 from data import extract_data
-from tech import supertrend, vegas, bollingerband, occross, vp_slope
+from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 
 logger = get_logger(__name__)
 
@@ -155,6 +156,18 @@ def filter_by_vp_slope(date: str, stock_codes: List[str]) -> List[str]:
     return result
 
 
+def save_to_csv(df, date: str) -> str:
+    """保存结果到CSV文件"""
+    log_dir = get_log_dir()
+    filename = f"listing-{date}.csv"
+    filepath = os.path.join(log_dir, filename)
+    
+    df.to_csv(filepath, index=False, encoding='utf-8-sig')
+    logger.info(f"结果已保存到: {filepath}")
+    
+    return filepath
+
+
 def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str] = None, skip_update: bool = False) -> List[str]:
     """执行完整的股票筛选流程"""
     logger.info("=" * 70)
@@ -196,11 +209,18 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
         return []
     
     logger.info("=" * 70)
-    logger.info("筛选完成!")
+    logger.info("计算趋势强度评分...")
     logger.info("=" * 70)
-    logger.info(f"最终符合条件的股票列表 ({len(codes)} 只):")
-    for i, code in enumerate(codes, 1):
-        logger.info(f"  {i:3d}. {code}")
+    
+    strength_df = trend_score.rank_stocks_by_strength(codes, date)
+    
+    if not strength_df.empty:
+        logger.info(f"最终符合条件的股票列表 ({len(codes)} 只，按趋势强度降序排列):")
+        for _, row in strength_df.iterrows():
+            logger.info(f"  {row['rank']:3d}. {row['stock_code']} {row['stock_name']}: "
+                        f"{row['strength_score']:.2f}分 ({trend_score.get_strength_label(row['strength_score'])})")
+        
+        save_to_csv(strength_df, date)
     
     return codes
 
