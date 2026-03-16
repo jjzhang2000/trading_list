@@ -214,8 +214,8 @@ def main():
                         help='布林带开口率阈值 (默认: 10.0)')
     parser.add_argument('-p', '--proxy', type=str, default=None,
                         help='代理服务器地址，例如: http://127.0.0.1:7890')
-    parser.add_argument('--skip-update', action='store_true',
-                        help='跳过数据更新步骤')
+    parser.add_argument('--update', action='store_true',
+                        help='更新股票数据 (默认跳过更新)')
     
     args = parser.parse_args()
     
@@ -228,7 +228,7 @@ def main():
         date, 
         bandwidth_threshold=args.bandwidth,
         proxy=args.proxy,
-        skip_update=args.skip_update
+        skip_update=not args.update
     )
     
     return result
