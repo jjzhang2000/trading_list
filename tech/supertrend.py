@@ -46,8 +46,10 @@ def calculate_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float =
     result = pd.DataFrame()
     if 'date' in df.columns:
         result['date'] = df['date']
+    if 'close' in df.columns:
+        result['close'] = df['close']
     
-    supert_col = [col for col in st_df.columns if col.startswith('SUPERT_') and not col.startswith('SUPERTd')][0]
+    supert_col = [col for col in st_df.columns if col.startswith('SUPERT_') and not col.startswith('SUPERTd') and not col.startswith('SUPERTl') and not col.startswith('SUPERTs')][0]
     supertd_col = [col for col in st_df.columns if col.startswith('SUPERTd_')][0]
     
     result['supertrend'] = st_df[supert_col]
