@@ -96,7 +96,15 @@ def save_to_csv(df, date: str) -> str:
     filename = f"listing-{date}.csv"
     filepath = os.path.join(log_dir, filename)
     
-    df.to_csv(filepath, index=False, encoding='utf-8-sig')
+    try:
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
+    except PermissionError:
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%H%M%S')
+        filename = f"listing-{date}_{timestamp}.csv"
+        filepath = os.path.join(log_dir, filename)
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
+    
     logger.info(f"结果已保存到: {filepath}")
     
     return filepath

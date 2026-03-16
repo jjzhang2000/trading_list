@@ -715,7 +715,12 @@ class StockFilterGUI:
                         self.root.after(0, self.update_result_list)
                         
                         csv_path = os.path.join(get_log_dir(), f"listing-{date}.csv")
-                        strength_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                        try:
+                            strength_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                        except PermissionError:
+                            timestamp = datetime.now().strftime('%H%M%S')
+                            csv_path = os.path.join(get_log_dir(), f"listing-{date}_{timestamp}.csv")
+                            strength_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
                         self.root.after(0, lambda p=csv_path: self.log_result(f"结果已保存到: {p}"))
                         
                         self.root.after(0, lambda c=len(all_result_codes): self.log_result(f"筛选完成！共 {c} 只股票"))
