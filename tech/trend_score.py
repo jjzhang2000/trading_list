@@ -105,7 +105,7 @@ def calculate_trend_strength(stock_code: str, date: str) -> Optional[Dict]:
     st_score = min(metrics['st_above_pct'] / 10, 10) if metrics['st_above_pct'] > 0 else 0
     vegas_score = min(metrics['vegas_above_pct'] / 20, 10) if metrics['vegas_above_pct'] > 0 else 0
     bb_score = min(metrics['bandwidth'] / 5, 10) if metrics['bandwidth'] > 0 else 0
-    occ_score = min(metrics['occ_above_pct'] / 5, 10) if metrics['occ_above_pct'] > 0 else 0
+    occ_score = min(metrics['occ_above_pct'] / 5 * 10, 10) if metrics['occ_above_pct'] > 0 else 0
     slope_score = min(metrics['slope_long'] * 100, 10) if metrics['slope_long'] > 0 else 0
     
     metrics['st_score'] = round(st_score, 2)
