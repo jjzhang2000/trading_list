@@ -10,105 +10,39 @@ from datetime import datetime
 from typing import List, Optional
 
 from utils.logger import get_logger, get_log_dir
-from data.read_data import get_all_stock_codes
+from data.read_data import get_all_stock_codes, get_stock_name
 from data import extract_data
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 
 logger = get_logger(__name__)
 
+SHAREHOLDING_FILE = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
+
+
+def load_shareholding() -> List[str]:
+    """读取持仓股票列表"""
+    if not os.path.exists(SHAREHOLDING_FILE):
+        return []
+    
+    codes = []
+    with open(SHAREHOLDING_FILE, 'r', encoding='utf-8') as f:
+        for line in f:
+            code = line.strip()
+            if code and code.isdigit():
+                codes.append(code)
+    
+    return codes
+
 
 def update_stock_data(proxy: Optional[str] = None):
     """更新股票数据"""
+    from data.batch_fetch import update_daily_data_batch
+    
     logger.info("=" * 70)
     logger.info("更新股票数据...")
     logger.info("=" * 70)
     
-    adj_fetcher = extract_data.RealAdjustFactorFetcher(proxy=proxy)
-    extract_data.create_database(extract_data.DB_PATH)
-    
-    stock_list = extract_data.get_sh_a_stock_list()
-    total = len(stock_list)
-    
-    if total == 0:
-        logger.warning("没有获取到股票列表，跳过数据更新")
-        return
-    
-    logger.info(f"共需更新 {total} 只股票")
-    
-    success_count = 0
-    fail_count = 0
-    
-    import sqlite3
-    import time
-    from datetime import timedelta
-    
-    conn = sqlite3.connect(extract_data.DB_PATH)
-    end_date = datetime.now()
-    end_date_str = end_date.strftime('%Y-%m-%d')
-    
-    for i, (stock_code, stock_name) in enumerate(stock_list):
-        stock_info = extract_data.get_stock_info(conn, stock_code)
-        
-        if stock_info is None:
-            start_date = end_date - timedelta(days=extract_data.YEARS * 365)
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            
-            df_adj, source = adj_fetcher.fetch_adjust_factor(
-                stock_code, start_date_str, end_date_str
-            )
-            
-            if df_adj is not None and not df_adj.empty:
-                success_count += 1
-                extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj)
-                extract_data.update_stock_info(conn, stock_code, df_adj, stock_name)
-        else:
-            df_adj, source = adj_fetcher.fetch_adjust_factor(
-                stock_code, stock_info['end_date'], end_date_str
-            )
-            
-            if df_adj is not None and not df_adj.empty:
-                end_date_data = df_adj[df_adj['date'] == stock_info['end_date']]
-                
-                if not end_date_data.empty:
-                    source_close = end_date_data.iloc[0]['close']
-                    db_close = stock_info['end_date_close']
-                    
-                    if abs(source_close - db_close) > 0.01:
-                        start_date = end_date - timedelta(days=extract_data.YEARS * 365)
-                        start_date_str = start_date.strftime('%Y-%m-%d')
-                        
-                        df_adj_full, source_full = adj_fetcher.fetch_adjust_factor(
-                            stock_code, start_date_str, end_date_str
-                        )
-                        
-                        if df_adj_full is not None and not df_adj_full.empty:
-                            success_count += 1
-                            extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj_full)
-                            extract_data.update_stock_info(conn, stock_code, df_adj_full, stock_name)
-                    else:
-                        new_data = df_adj[df_adj['date'] > stock_info['end_date']]
-                        
-                        if not new_data.empty:
-                            success_count += 1
-                            extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                            extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
-                else:
-                    new_data = df_adj[df_adj['date'] > stock_info['end_date']]
-                    
-                    if not new_data.empty:
-                        success_count += 1
-                        extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                        extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
-            else:
-                fail_count += 1
-        
-        if (i + 1) % 100 == 0 or i == total - 1:
-            logger.info(f"更新进度: {i + 1}/{total} ({(i + 1)/total*100:.1f}%) - 成功: {success_count}, 失败: {fail_count}")
-        
-        time.sleep(extract_data.REQUEST_DELAY)
-    
-    conn.close()
-    logger.info(f"数据更新完成: 成功 {success_count}, 失败 {fail_count}")
+    update_daily_data_batch(proxy=proxy)
 
 
 def filter_by_supertrend(date: str, stock_codes: List[str]) -> List[str]:
@@ -168,7 +102,7 @@ def save_to_csv(df, date: str) -> str:
     return filepath
 
 
-def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str] = None, skip_update: bool = False) -> List[str]:
+def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str] = None, skip_update: bool = True) -> List[str]:
     """执行完整的股票筛选流程"""
     logger.info("=" * 70)
     logger.info(f"股票筛选主程序 - 筛选日期: {date}")
@@ -208,16 +142,24 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
         logger.info("筛选结果为空，程序结束")
         return []
     
+    shareholding = load_shareholding()
+    logger.info(f"读取持仓股票: {len(shareholding)} 只")
+    
+    all_result_codes = list(set(codes + shareholding))
+    
     logger.info("=" * 70)
     logger.info("计算趋势强度评分...")
     logger.info("=" * 70)
     
-    strength_df = trend_score.rank_stocks_by_strength(codes, date)
+    strength_df = trend_score.rank_stocks_by_strength(all_result_codes, date)
     
     if not strength_df.empty:
-        logger.info(f"最终符合条件的股票列表 ({len(codes)} 只，按趋势强度降序排列):")
+        strength_df['is_shareholding'] = strength_df['stock_code'].isin(shareholding)
+        
+        logger.info(f"最终结果 ({len(all_result_codes)} 只，按趋势强度降序排列):")
         for _, row in strength_df.iterrows():
-            logger.info(f"  {row['rank']:3d}. {row['stock_code']} {row['stock_name']}: "
+            mark = "★" if row['is_shareholding'] else " "
+            logger.info(f"  {row['rank']:3d}. {mark} {row['stock_code']} {row['stock_name']}: "
                         f"{row['strength_score']:.2f}分 ({trend_score.get_strength_label(row['strength_score'])})")
         
         save_to_csv(strength_df, date)
