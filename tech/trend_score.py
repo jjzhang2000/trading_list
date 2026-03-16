@@ -108,6 +108,12 @@ def calculate_trend_strength(stock_code: str, date: str) -> Optional[Dict]:
     occ_score = min(metrics['occ_above_pct'] / 5, 10) if metrics['occ_above_pct'] > 0 else 0
     slope_score = min(metrics['slope_long'] * 100, 10) if metrics['slope_long'] > 0 else 0
     
+    metrics['st_score'] = round(st_score, 2)
+    metrics['vegas_score'] = round(vegas_score, 2)
+    metrics['bb_score'] = round(bb_score, 2)
+    metrics['occ_score'] = round(occ_score, 2)
+    metrics['slope_score'] = round(slope_score, 2)
+    
     weights = {
         'st': 1.0,
         'vegas': 2.0,
@@ -162,6 +168,7 @@ def rank_stocks_by_strength(stock_codes: List[str], date: str) -> pd.DataFrame:
         df['rank'] = range(1, len(df) + 1)
         
         cols = ['rank', 'stock_code', 'stock_name', 'strength_score',
+                'st_score', 'vegas_score', 'bb_score', 'occ_score', 'slope_score',
                 'st_above_pct', 'vegas_above_pct', 'bandwidth', 
                 'occ_above_pct', 'slope_long']
         df = df[[c for c in cols if c in df.columns]]
