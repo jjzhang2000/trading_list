@@ -23,3 +23,51 @@ logs/
 *.tmp
 *.bak
 *.swp
+
+# C# / .NET
+*.dll
+*.exe
+*.pdb
+*.cache
+*.ilk
+*.lib
+*.exp
+*.user
+*.suo
+*.sln.docstates
+
+# Build outputs
+csharp/**/bin/
+csharp/**/obj/
+csharp/**/out/
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.vcxproj.filters
+
+# Rider
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test results
+TestResults/
+
+# Coverage
+coverage/
+*.coverage
+.coveragexml
+
+# Entity Framework
+*.db-shm
+*.db-wal
+
+# Application Data
+**/AppData/
+**/%APPDATA%/

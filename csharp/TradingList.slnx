@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TradingList.Application/TradingList.Application.csproj" />
+    <Project Path="src/TradingList.Core/TradingList.Core.csproj" />
+    <Project Path="src/TradingList.Infrastructure/TradingList.Infrastructure.csproj" />
+    <Project Path="src/TradingList.WPF/TradingList.WPF.csproj" />
+  </Folder>
+</Solution>
