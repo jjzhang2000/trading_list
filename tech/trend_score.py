@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-综合趋势强度评分模块
+ST-Slope(60日) 多因子排序模块 — Cross-Sectional Ranking
 
-对已筛选出的多头股票，衡量多头趋势的强弱程度
+因子1: ST偏离度(st_above_pct) — 收盘价高于SuperTrend线的百分比
+因子2: 60日对数价格线性回归斜率 — 惩罚过度延伸
+合成公式: composite = zscore(st_above_pct) - zscore(slope_60d)
 """
 
+import numpy as np
 import pandas as pd
 from typing import Optional, List, Dict
 import sys
@@ -13,178 +16,204 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from tech import supertrend, vegas, bollingerband, occross, vp_slope
-from data.read_data import get_stock_name
+from data.read_data import get_stock_price_before_date, get_stock_name
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+ST_PERIOD = 10
+ST_MULTIPLIER = 3.0
+SLOPE_WINDOW = 60
+DATA_DAYS = 120
+
+
+def compute_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.ewm(span=period, adjust=False).mean()
+
+
+def supertrend_line(high: pd.Series, low: pd.Series, close: pd.Series,
+                    period: int = 10, multiplier: float = 3.0) -> pd.Series:
+    """返回pd.Series: SuperTrend线值（上升趋势返回下轨，下降趋势返回上轨）"""
+    atr = compute_atr(high, low, close, period)
+    hl2 = (high + low) / 2.0
+    basic_upper = hl2 + multiplier * atr
+    basic_lower = hl2 - multiplier * atr
+
+    n = len(close)
+    final_upper = pd.Series(np.nan, index=close.index)
+    final_lower = pd.Series(np.nan, index=close.index)
+    trend = pd.Series(0, index=close.index)
+
+    first = period
+    if first >= n:
+        return pd.Series(np.nan, index=close.index)
+    final_upper.iloc[first] = basic_upper.iloc[first]
+    final_lower.iloc[first] = basic_lower.iloc[first]
+    trend.iloc[first] = 1
+
+    for i in range(first + 1, n):
+        prev_upper = final_upper.iloc[i - 1]
+        if pd.notna(prev_upper) and (basic_upper.iloc[i] < prev_upper
+                                      or close.iloc[i - 1] > prev_upper):
+            final_upper.iloc[i] = basic_upper.iloc[i]
+        else:
+            final_upper.iloc[i] = prev_upper
+
+        prev_lower = final_lower.iloc[i - 1]
+        if pd.notna(prev_lower) and (basic_lower.iloc[i] > prev_lower
+                                      or close.iloc[i - 1] < prev_lower):
+            final_lower.iloc[i] = basic_lower.iloc[i]
+        else:
+            final_lower.iloc[i] = prev_lower
+
+        if trend.iloc[i - 1] == 1:
+            trend.iloc[i] = -1 if close.iloc[i] < final_lower.iloc[i] else 1
+        else:
+            trend.iloc[i] = 1 if close.iloc[i] > final_upper.iloc[i] else -1
+
+    st_line = pd.Series(np.nan, index=close.index)
+    for i in range(first, n):
+        if trend.iloc[i] == 1:
+            st_line.iloc[i] = final_lower.iloc[i]
+        else:
+            st_line.iloc[i] = final_upper.iloc[i]
+
+    return st_line
+
+
+def rolling_slope(series: pd.Series, window: int) -> pd.Series:
+    """对数价格的滚动线性回归斜率"""
+    log_s = np.log(series)
+    x = np.arange(window)
+
+    def _slope(y):
+        y = y.values if hasattr(y, 'values') else np.array(y)
+        mask = ~np.isnan(y)
+        if mask.sum() < window // 2:
+            return np.nan
+        return np.polyfit(x[mask], y[mask], 1)[0]
+
+    return log_s.rolling(window).apply(_slope, raw=False)
+
 
 def calculate_trend_strength(stock_code: str, date: str) -> Optional[Dict]:
     """
-    计算单只股票的多头趋势强度
-    
-    强度指标：
-    1. SuperTrend: 收盘价高于supertrend线的幅度 (%)
-    2. Vegas通道: 收盘价高于EMA144的幅度 (%) - 代表中期趋势强度
-    3. 布林带: 开口率 (%) - 开口越大波动越大趋势越强
-    4. OCC: occ_close高于occ_open的幅度 (%)
-    5. VP Slope: 长期斜率值 - 斜率越大趋势越强
-    
-    综合强度 = 各指标标准化后的加权平均
-    
+    计算单只股票的ST偏离度和60日斜率因子
+
     Args:
         stock_code: 股票代码
         date: 日期（YYYY-MM-DD格式）
-    
+
     Returns:
-        包含强度详情的字典，如果数据不足则返回None
+        包含因子值的字典，如果数据不足则返回None
     """
-    metrics = {}
-    
-    st_df = supertrend.get_stock_supertrend(stock_code, date, days=50)
-    if st_df is not None and not st_df.empty:
-        last_row = st_df.iloc[-1]
-        close = last_row.get('close', 0)
-        st_value = last_row['supertrend']
-        if st_value > 0 and close > 0:
-            metrics['st_above_pct'] = (close - st_value) / st_value * 100
-        else:
-            metrics['st_above_pct'] = 0
-        metrics['st_trend'] = '多头' if last_row['trend_direction'] == 1 else '空头'
-    else:
-        metrics['st_above_pct'] = 0
-        metrics['st_trend'] = '数据不足'
-    
-    vegas_df = vegas.get_stock_vegas(stock_code, date, days=50)
-    if vegas_df is not None and not vegas_df.empty:
-        last_row = vegas_df.iloc[-1]
-        close = last_row['close']
-        ema144 = last_row['ema144']
-        if ema144 > 0 and close > 0:
-            metrics['vegas_above_pct'] = (close - ema144) / ema144 * 100
-        else:
-            metrics['vegas_above_pct'] = 0
-        metrics['vegas_trend'] = '多头排列' if last_row['trend_direction'] == 1 else ('震荡' if last_row['trend_direction'] == 0 else '空头排列')
-    else:
-        metrics['vegas_above_pct'] = 0
-        metrics['vegas_trend'] = '数据不足'
-    
-    bb_df = bollingerband.get_stock_bollinger_band(stock_code, date, days=50)
-    if bb_df is not None and not bb_df.empty:
-        last_row = bb_df.iloc[-1]
-        metrics['bandwidth'] = last_row['bandwidth']
-        metrics['bb_above_middle'] = last_row['close'] > last_row['middle_band']
-    else:
-        metrics['bandwidth'] = 0
-        metrics['bb_above_middle'] = False
-    
-    occ_df = occross.get_stock_occ(stock_code, date, days=50)
-    if occ_df is not None and not occ_df.empty:
-        last_row = occ_df.iloc[-1]
-        occ_open = last_row['occ_open']
-        occ_close = last_row['occ_close']
-        if occ_open > 0:
-            metrics['occ_above_pct'] = (occ_close - occ_open) / occ_open * 100
-        else:
-            metrics['occ_above_pct'] = 0
-        metrics['occ_trend'] = '多头' if last_row['trend_direction'] == 1 else '空头'
-    else:
-        metrics['occ_above_pct'] = 0
-        metrics['occ_trend'] = '数据不足'
-    
-    slope_df = vp_slope.get_stock_slope(stock_code, date, days=50)
-    if slope_df is not None and not slope_df.empty:
-        last_row = slope_df.iloc[-1]
-        metrics['slope_long'] = last_row['slope_long']
-        metrics['slope_short'] = last_row['slope_short']
-    else:
-        metrics['slope_long'] = 0
-        metrics['slope_short'] = 0
-    
-    st_score = min(metrics['st_above_pct'] / 10, 10) if metrics['st_above_pct'] > 0 else 0
-    vegas_score = min(metrics['vegas_above_pct'] / 20, 10) if metrics['vegas_above_pct'] > 0 else 0
-    bb_score = min(metrics['bandwidth'] / 10, 10) if metrics['bandwidth'] > 0 else 0
-    occ_score = min(metrics['occ_above_pct'] / 5 * 10, 10) if metrics['occ_above_pct'] > 0 else 0
-    slope_score = min(metrics['slope_long'] * 100, 10) if metrics['slope_long'] > 0 else 0
-    
-    metrics['st_score'] = round(st_score, 2)
-    metrics['vegas_score'] = round(vegas_score, 2)
-    metrics['bb_score'] = round(bb_score, 2)
-    metrics['occ_score'] = round(occ_score, 2)
-    metrics['slope_score'] = round(slope_score, 2)
-    
-    weights = {
-        'st': 1.0,
-        'vegas': 2.0,
-        'bb': 1.0,
-        'occ': 1.0,
-        'slope': 1.0
-    }
-    
-    total_weight = sum(weights.values())
-    weighted_score = (
-        st_score * weights['st'] +
-        vegas_score * weights['vegas'] +
-        bb_score * weights['bb'] +
-        occ_score * weights['occ'] +
-        slope_score * weights['slope']
-    ) / total_weight
-    
-    metrics['strength_score'] = round(weighted_score, 2)
-    metrics['stock_code'] = stock_code
-    metrics['stock_name'] = get_stock_name(stock_code) or ''
-    
-    return metrics
+    df = get_stock_price_before_date(stock_code, date, DATA_DAYS)
+    if df.empty or len(df) < max(ST_PERIOD, SLOPE_WINDOW) + 5:
+        return None
+
+    try:
+        df = df.copy()
+        st_line = supertrend_line(
+            df['high'], df['low'], df['close'],
+            ST_PERIOD, ST_MULTIPLIER
+        )
+        slope = rolling_slope(df['close'], SLOPE_WINDOW)
+
+        last_close = df['close'].iloc[-1]
+        last_st = st_line.iloc[-1]
+        last_slope = slope.iloc[-1]
+
+        if pd.isna(last_st) or last_st <= 0 or np.isnan(last_slope):
+            return None
+
+        st_above_pct = (last_close - last_st) / last_st * 100
+
+        return {
+            'stock_code': stock_code,
+            'stock_name': get_stock_name(stock_code) or '',
+            'st_above_pct': round(st_above_pct, 4),
+            'slope_60d': float(last_slope),
+        }
+    except Exception as e:
+        logger.warning(f"计算 {stock_code} 因子失败: {e}")
+        return None
 
 
 def rank_stocks_by_strength(stock_codes: List[str], date: str) -> pd.DataFrame:
     """
-    对股票列表按多头趋势强度排序
-    
+    对股票列表按ST-Slope截面Z-score排序
+
+    合成公式: composite = zscore(st_above_pct) - zscore(slope_60d)
+    ST偏离度高加分，高斜率（过度延伸）扣分
+
     Args:
         stock_codes: 股票代码列表
         date: 日期（YYYY-MM-DD格式）
-    
+
     Returns:
-        DataFrame，按强度评分降序排列
+        DataFrame，按合成得分降序排列
     """
+    logger.info(f"开始计算 {len(stock_codes)} 只股票的ST-Slope因子...")
+
     results = []
-    
-    logger.info(f"开始计算 {len(stock_codes)} 只股票的趋势强度...")
-    
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
             logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
-        
+
         metrics = calculate_trend_strength(code, date)
         if metrics is not None:
             results.append(metrics)
-    
+
+    if not results:
+        logger.info("无有效因子数据")
+        return pd.DataFrame()
+
     df = pd.DataFrame(results)
-    
-    if not df.empty:
-        df = df.sort_values('strength_score', ascending=False).reset_index(drop=True)
-        df['rank'] = range(1, len(df) + 1)
-        
-        cols = ['rank', 'stock_code', 'stock_name', 'strength_score',
-                'st_score', 'vegas_score', 'bb_score', 'occ_score', 'slope_score',
-                'st_above_pct', 'vegas_above_pct', 'bandwidth', 
-                'occ_above_pct', 'slope_long']
-        df = df[[c for c in cols if c in df.columns]]
-    
-    logger.info(f"强度评分完成，共 {len(df)} 只股票")
-    
+
+    st_s = df['st_above_pct']
+    sl_s = df['slope_60d']
+
+    st_std = st_s.std()
+    sl_std = sl_s.std()
+
+    if st_std == 0 or sl_std == 0:
+        logger.warning("因子标准差为0，无法Z-score标准化")
+        df['composite'] = 0.0
+    else:
+        df['st_zscore'] = (st_s - st_s.mean()) / st_std
+        df['slope_zscore'] = (sl_s - sl_s.mean()) / sl_std
+        df['composite'] = df['st_zscore'] - df['slope_zscore']
+
+    score_min = df['composite'].min()
+    score_max = df['composite'].max()
+    if score_max > score_min:
+        df['strength_score'] = round((df['composite'] - score_min) / (score_max - score_min) * 10, 2)
+    else:
+        df['strength_score'] = 5.0
+
+    df = df.sort_values('composite', ascending=False).reset_index(drop=True)
+    df['rank'] = range(1, len(df) + 1)
+
+    cols = ['rank', 'stock_code', 'stock_name', 'strength_score',
+            'st_above_pct', 'slope_60d', 'st_zscore', 'slope_zscore', 'composite']
+    df = df[[c for c in cols if c in df.columns]]
+
+    logger.info(f"ST-Slope截面排序完成，共 {len(df)} 只股票")
+
     return df
 
 
 def get_strength_label(score: float) -> str:
     """
     根据强度评分返回标签
-    
+
     Args:
-        score: 强度评分 (0-10)
-    
+        score: 强度评分 (0-10，由composite归一化而来)
+
     Returns:
         强度标签
     """
@@ -203,25 +232,23 @@ def get_strength_label(score: float) -> str:
 def main():
     """测试函数"""
     logger.info("=" * 70)
-    logger.info("测试趋势强度评分模块")
+    logger.info("测试ST-Slope截面排序模块")
     logger.info("=" * 70)
-    
+
     test_codes = ['600010', '600026', '600036']
     date = '2026-03-15'
-    
+
     df = rank_stocks_by_strength(test_codes, date)
-    
+
     if not df.empty:
-        logger.info(f"\n强度评分结果:")
+        logger.info(f"\n截面排序结果:")
         for _, row in df.iterrows():
             logger.info(f"  {row['rank']}. {row['stock_code']} {row['stock_name']}: "
                         f"{row['strength_score']:.2f}分 ({get_strength_label(row['strength_score'])})")
-            logger.info(f"     SuperTrend高于: {row['st_above_pct']:.2f}%, "
-                        f"Vegas高于EMA144: {row['vegas_above_pct']:.2f}%, "
-                        f"布林带开口率: {row['bandwidth']:.2f}%")
-            logger.info(f"     OCC高于: {row['occ_above_pct']:.2f}%, "
-                        f"VP Slope: {row['slope_long']:.4f}")
-    
+            logger.info(f"     ST偏离度: {row['st_above_pct']:.2f}%, "
+                        f"60日斜率: {row['slope_60d']:.6f}, "
+                        f"Z-score: ST={row['st_zscore']:.3f} Slope={row['slope_zscore']:.3f}")
+
     logger.info("=" * 70)
     logger.info("测试完成")
     logger.info("=" * 70)

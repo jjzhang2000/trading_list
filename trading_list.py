@@ -49,23 +49,6 @@ from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_scor
 
 logger = get_logger(__name__)
 
-SHAREHOLDING_FILE = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
-
-
-def load_shareholding() -> List[str]:
-    """读取持仓股票列表"""
-    if not os.path.exists(SHAREHOLDING_FILE):
-        return []
-    
-    codes = []
-    with open(SHAREHOLDING_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            code = line.strip()
-            if code and code.isdigit():
-                codes.append(code)
-    
-    return codes
-
 
 def update_stock_data(proxy: Optional[str] = None):
     """更新股票数据"""
@@ -188,30 +171,16 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
         logger.info("筛选结果为空，程序结束")
         return []
     
-    shareholding = load_shareholding()
-    logger.info(f"读取持仓股票: {len(shareholding)} 只")
-    
-    all_result_codes = list(set(codes + shareholding))
-    
     logger.info("=" * 70)
     logger.info("计算趋势强度评分...")
     logger.info("=" * 70)
     
-    strength_df = trend_score.rank_stocks_by_strength(all_result_codes, date)
+    strength_df = trend_score.rank_stocks_by_strength(codes, date)
     
     if not strength_df.empty:
-        strength_df['is_shareholding'] = strength_df['stock_code'].isin(shareholding)
-        
-        strength_df['stock_name'] = strength_df.apply(
-            lambda row: f"*{row['stock_name']}" if row['is_shareholding'] and row['stock_name'] else row['stock_name'],
-            axis=1
-        )
-        
-        logger.info(f"最终结果 ({len(all_result_codes)} 只，按趋势强度降序排列):")
+        logger.info(f"最终结果 ({len(codes)} 只，按趋势强度降序排列):")
         for _, row in strength_df.iterrows():
-            mark = "★" if row['is_shareholding'] else " "
-            display_name = row['stock_name'].lstrip('*') if row['stock_name'].startswith('*') else row['stock_name']
-            logger.info(f"  {row['rank']:3d}. {mark} {row['stock_code']} {display_name}: "
+            logger.info(f"  {row['rank']:3d}. {row['stock_code']} {row['stock_name']}: "
                         f"{row['strength_score']:.2f}分 ({trend_score.get_strength_label(row['strength_score'])})")
         
         save_to_csv(strength_df, date)

@@ -29,7 +29,7 @@ def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int 
         period_short: 短期周期，默认为10
     
     Returns:
-        DataFrame，包含列：slope_long, slope_short
+        DataFrame，包含列：close, slope_long, slope_short
         
     使用pandas-ta的linreg函数计算线性回归，然后提取斜率：
         slope = linear_regression(close, period).slope
@@ -47,6 +47,7 @@ def calculate_slope(df: pd.DataFrame, period_long: int = 100, period_short: int 
     result = pd.DataFrame()
     if 'date' in df.columns:
         result['date'] = df['date']
+    result['close'] = df['close']
     result['slope_long'] = linreg_long
     result['slope_short'] = linreg_short
     
@@ -66,7 +67,7 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
         period_short: 短期周期，默认为10
     
     Returns:
-        DataFrame，包含列：date, slope_long, slope_short
+        DataFrame，包含列：date, close, slope_long, slope_short
         如果数据不足则返回None
     """
     MIN_DATA_BUFFER = 10
@@ -104,9 +105,11 @@ def filter_stocks_by_slope(date: str, stock_codes: List[str],
         period_short: 短期周期，默认为10
     
     Returns:
-        DataFrame，包含列：stock_code, slope_long, slope_short
-        只包含slope_long > 0的股票
+        DataFrame，包含列：stock_code, slope_long, slope_short, slope_pct
+        只包含slope_pct > 0.005的股票
     """
+    SLOPE_CLOSE_THRESHOLD = 0.005
+
     results = []
     
     logger.info(f"开始计算 {len(stock_codes)} 只股票的斜率...")
@@ -120,12 +123,15 @@ def filter_stocks_by_slope(date: str, stock_codes: List[str],
         
         if slope_df is not None and not slope_df.empty:
             last_row = slope_df.iloc[-1]
-            if pd.notna(last_row['slope_long']) and last_row['slope_long'] > 0:
-                results.append({
-                    'stock_code': code,
-                    'slope_long': last_row['slope_long'],
-                    'slope_short': last_row['slope_short']
-                })
+            if pd.notna(last_row['slope_long']) and last_row['close'] > 0:
+                slope_pct = last_row['slope_long'] / last_row['close']
+                if slope_pct > SLOPE_CLOSE_THRESHOLD:
+                    results.append({
+                        'stock_code': code,
+                        'slope_long': last_row['slope_long'],
+                        'slope_short': last_row['slope_short'],
+                        'slope_pct': slope_pct
+                    })
     
     result_df = pd.DataFrame(results)
     

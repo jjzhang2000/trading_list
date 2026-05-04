@@ -1,174 +1,140 @@
-# AGENTS.md - Trading List Project Guidelines
+# AGENTS.md - 股票筛选系统开发规范
 
-## Project Overview
+## 项目概述
 
-This is a Python-based stock screening system for Chinese A-shares (上证A股), using technical indicators to filter bullish stocks and score trend strength.
+基于技术指标的上证A股筛选系统，通过多维度技术指标筛选多头趋势股票，并按趋势强度排序。
 
-**Project Structure:**
-- `trading_list.py` - CLI stock screener
-- `list_gui.py` - GUI version (tkinter)
-- `tech/` - Technical indicator modules
-- `data/` - Data fetching and database modules
-- `utils/` - Utility modules (logger)
-- `shareholding.txt` - Portfolio holdings
+## 项目结构
 
-## Commands
-
-### Setup
-```bash
-pip install -r requirements.txt
+```
+trading_list/
+├── trading_list.py       # CLI筛选程序
+├── list_gui.py           # GUI筛选程序（tkinter）
+├── tech/                 # 技术指标模块
+│   ├── supertrend.py     # SuperTrend指标
+│   ├── vegas.py          # Vegas通道
+│   ├── bollingerband.py  # 布林带
+│   ├── occross.py        # OCC指标
+│   ├── vp_slope.py       # VP斜率
+│   └── trend_score.py    # 趋势评分（ST-Slope截面排序）
+├── data/                 # 数据模块
+│   ├── extract_data.py   # 新浪API数据获取
+│   ├── init_db.py        # 数据库初始化
+│   ├── read_data.py      # 数据库读取
+│   └── batch_fetch.py    # 批量数据更新
+└── utils/
+    └── logger.py         # 日志模块
 ```
 
-### Run Application
+## 运行命令
+
 ```bash
-# GUI (recommended)
+# GUI（推荐）
 python list_gui.py
 
-# CLI - default (skip data update)
+# CLI
 python trading_list.py
 
-# CLI - with data update
-python trading_list.py --update
-
-# CLI - with specific date
+# 指定日期
 python trading_list.py -d 2025-03-07
 
-# CLI - full parameters
-python trading_list.py -d 2025-03-07 -b 10.0 --update
+# 更新数据
+python trading_list.py --update
 ```
 
-### Database Operations
+## 数据库操作
+
 ```bash
-# Initialize database (clears existing data)
+# 初始化数据库
 python -c "from data.init_db import init_db; init_db()"
 
-# Extract data from Sina Finance
+# 提取数据
 python -c "from data.extract_data import main; main()"
-```
 
-### Testing
-**No test framework is configured.** This project does not have unit tests.
-To test individual modules, import and call functions directly in Python interpreter.
-
-### Data Management
-```bash
-# Check database content
+# 查看数据
 sqlite3 data/stock_data.db ".tables"
-sqlite3 data/stock_data.db "SELECT * FROM stock_prices LIMIT 10"
+sqlite3 data/stock_data.db "SELECT * FROM stock_daily LIMIT 10"
 ```
 
-## Code Style Guidelines
+## 代码规范
 
-### General
-- Python 3.8+ compatible
-- UTF-8 encoding: `# -*- coding: utf-8 -*-` at file start
-- Docstrings for all modules, classes, and functions
-- Comments in Chinese for Chinese financial domain
+### 通用规范
 
-### Imports
-- Standard library imports first
-- Third-party imports second (pandas, numpy, pandas_ta)
-- Local module imports last
-- Use `sys.path.insert(0, ...)` for cross-module imports
+- Python 3.8+
+- 文件头：`# -*- coding: utf-8 -*-`
+- 模块、函数使用docstring
+- 中文注释用于业务逻辑
 
-Example:
-```python
-import pandas as pd
-import pandas_ta as ta
-from typing import Optional, List
-import sys
-import os
+### 导入顺序
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from data.read_data import get_stock_price_before_date
-from utils.logger import get_logger
-```
+标准库 → 第三方库（pandas, numpy, pandas_ta）→ 本地模块
 
-### Naming Conventions
-- **Functions**: `snake_case` (e.g., `calculate_supertrend`, `filter_bullish_stocks`)
-- **Variables**: `snake_case` (e.g., `stock_code`, `trend_direction`)
-- **Constants**: `UPPER_CASE` (e.g., `DB_PATH`, `REQUEST_DELAY`)
-- **Classes**: `PascalCase` (e.g., `StockFilterGUI`, `RealAdjustFactorFetcher`)
-- **Private methods**: `_leading_underscore` (e.g., `_init_session`)
+使用 `sys.path.insert(0, ...)` 处理跨模块导入。
 
-### Type Hints
-- Use type hints for function parameters and return values
-- Use `Optional[X]` for nullable values
-- Use `List[X]` for list types
-- Use `pd.DataFrame` and `pd.Series` for pandas types
+### 命名规范
 
-Example:
+| 类型 | 规范 | 示例 |
+| --- | --- | --- |
+| 函数 | snake_case | `calculate_supertrend` |
+| 变量 | snake_case | `stock_code` |
+| 常量 | UPPER_CASE | `DB_PATH` |
+| 类 | PascalCase | `StockFilterGUI` |
+| 私有方法 | `_前缀` | `_init_session` |
+
+### 类型注解
+
+函数参数和返回值使用类型注解。
+
 ```python
 def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50) -> Optional[pd.DataFrame]:
-    ...
 ```
 
-### Error Handling
-- Use `try/except` for external API calls and file operations
-- Log warnings for recoverable errors using `logger.warning()`
-- Return `None` or empty DataFrame on failure
-- Check DataFrame emptiness before processing
+### 异常处理
 
-Example:
-```python
-try:
-    result = some_api_call()
-except Exception as e:
-    logger.warning(f"API call failed: {e}")
-    return None
+外部API和文件操作用 `try/except`，日志用 `logger.warning()`，失败返回 `None` 或空DataFrame。
 
-if df.empty or len(df) < required_length:
-    return pd.DataFrame()
-```
+### 日志
 
-### Logging
-- Use module-level logger: `logger = get_logger(__name__)`
-- Log levels: `info` for progress, `warning` for issues, `error` for failures
-- Include context in log messages (stock code, values)
+模块级logger：`logger = get_logger(__name__)`
+- `info` 记录进度
+- `warning` 记录可恢复问题
+- `error` 记录失败
 
-### DataFrame Operations
-- Always make copies: `df = df.copy()`
-- Check DataFrame validity before calculations
-- Return empty DataFrame on insufficient data
-- Use pandas-ta for technical indicators
+### DataFrame操作
 
-### File Organization
-- One technical indicator per file in `tech/` directory
-- Each module should be self-contained with proper imports
-- Database operations in `data/` directory
-- Shared utilities in `utils/` directory
+- 总是 `df = df.copy()`
+- 使用pandas-ta计算技术指标
 
-### Configuration
-- No external config files - use module-level constants
-- Database path: `data/stock_data.db`
-- Portfolio file: `shareholding.txt` (root directory)
-- Log output: `logs/` directory
+## 配置文件
 
-### GUI Guidelines (tkinter)
-- Use classes for organizing GUI components
-- Use `StoppableThread` for background tasks
-- Update UI using `root.after()` for thread safety
-- Handle window close events properly
+无外部配置文件，使用模块级常量：
+- 数据库路径：`data/stock_data.db`
+- CSV输出：`logs/` 目录
 
-### Comments
-- Module docstrings explain functionality and usage
-- Function docstrings include Args, Returns, and description
-- Inline comments for complex logic
-- Comments in Chinese for business logic
+## 依赖
 
-## Dependencies
+- `pandas` - 数据处理
+- `numpy` - 数值计算
+- `pandas-ta` - 技术指标
+- `akshare` - 中文股票API
+- `python-dotenv` - 环境变量
 
-Core dependencies:
-- `pandas` - Data manipulation
-- `numpy` - Numerical operations
-- `pandas-ta` - Technical analysis indicators
-- `akshare` - Chinese stock data API
-- `python-dotenv` - Environment variables
+## 重要说明
 
-## Important Notes
+1. **数据源**：新浪财经API（上证A股60开头）
+2. **数据库**：SQLite，5年历史数据
+3. **频率限制**：请求间隔0.3秒
+4. **无单元测试**：依赖手动测试
 
-1. **Data Source**: Uses Sina Finance API for Chinese stock data
-2. **Database**: SQLite with 5 years of historical data
-3. **Rate Limiting**: 0.3s delay between API requests
-4. **Stock Universe**: Shanghai A-shares (60xxxx codes)
-5. **No Unit Tests**: Project relies on manual testing
+### ST-Slope截面排序
+
+评分公式：`composite = zscore(st_above_pct) - zscore(slope_60d)`
+
+- `st_above_pct`：收盘价高于ST线的百分比（正向贡献）
+- `slope_60d`：60日对数价格线性回归斜率（惩罚过度延伸）
+- `st_above_pct` 越大 → 排名越高
+- `slope_60d` 越大 → 排名越低（过度延伸）
+
+### VP Slope筛选阈值
+
+`(slope_long / close) > 0.005`（日均涨幅>0.5%）

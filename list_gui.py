@@ -58,23 +58,6 @@ from utils.logger import get_logger, get_log_dir
 
 logger = get_logger(__name__)
 
-SHAREHOLDING_FILE = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
-
-
-def load_shareholding() -> List[str]:
-    """读取持仓股票列表"""
-    if not os.path.exists(SHAREHOLDING_FILE):
-        return []
-    
-    codes = []
-    with open(SHAREHOLDING_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            code = line.strip()
-            if code and code.isdigit():
-                codes.append(code)
-    
-    return codes
-
 
 class StoppableThread(threading.Thread):
     """可停止的线程类，避免Python 3.13的daemon线程清理问题"""
@@ -587,11 +570,7 @@ class StockFilterGUI:
         """更新右侧筛选结果列表显示"""
         self.result_listbox.delete(0, tk.END)
         for item in self.filtered_list:
-            if len(item) == 4:
-                code, name, score, is_shareholding = item
-                mark = "★" if is_shareholding else " "
-                display_text = f"{score:.2f}  {mark} {code}  {name}" if name else f"{score:.2f}  {mark} {code}"
-            elif len(item) == 3:
+            if len(item) == 3:
                 code, name, score = item
                 display_text = f"{score:.2f}  {code}  {name}" if name else f"{score:.2f}  {code}"
             else:
@@ -691,25 +670,13 @@ class StockFilterGUI:
                     codes = df['stock_code'].tolist() if not df.empty else []
                     self.root.after(0, lambda c=len(codes): self.log_result(f"VP Slope筛选 - 输出: {c} 只股票"))
                 
-                shareholding = load_shareholding()
-                self.root.after(0, lambda s=len(shareholding): self.log_result(f"读取持仓股票: {s} 只"))
-                
-                all_result_codes = list(set(codes + shareholding))
-                
-                if all_result_codes:
+                if codes:
                     self.root.after(0, lambda: self.log_result(f"计算趋势强度评分..."))
-                    strength_df = trend_score.rank_stocks_by_strength(all_result_codes, date)
+                    strength_df = trend_score.rank_stocks_by_strength(codes, date)
                     
                     if not strength_df.empty:
-                        strength_df['is_shareholding'] = strength_df['stock_code'].isin(shareholding)
-                        
-                        strength_df['stock_name'] = strength_df.apply(
-                            lambda row: f"*{row['stock_name']}" if row['is_shareholding'] and row['stock_name'] else row['stock_name'],
-                            axis=1
-                        )
-                        
                         self.filtered_list = [
-                            (row['stock_code'], row['stock_name'], row['strength_score'], row['is_shareholding'])
+                            (row['stock_code'], row['stock_name'], row['strength_score'])
                             for _, row in strength_df.iterrows()
                         ]
                         self.root.after(0, self.update_result_list)
@@ -719,12 +686,12 @@ class StockFilterGUI:
                         strength_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
                         self.root.after(0, lambda p=csv_path: self.log_result(f"结果已保存到: {p}"))
                         
-                        self.root.after(0, lambda c=len(all_result_codes): self.log_result(f"筛选完成！共 {c} 只股票"))
+                        self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
                     else:
-                        all_result_codes.sort()
-                        self.filtered_list = [(code, code_to_name.get(code, ''), 0, code in shareholding) for code in all_result_codes]
+                        codes.sort()
+                        self.filtered_list = [(code, code_to_name.get(code, ''), 0) for code in codes]
                         self.root.after(0, self.update_result_list)
-                        self.root.after(0, lambda c=len(all_result_codes): self.log_result(f"筛选完成！共 {c} 只股票"))
+                        self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
                 else:
                     self.root.after(0, lambda: self.log_result("筛选结果为空"))
                 
