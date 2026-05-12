@@ -106,6 +106,30 @@ def filter_by_vp_slope(date: str, stock_codes: List[str]) -> List[str]:
     return result
 
 
+def get_holding_codes() -> List[str]:
+    """从shareholding.txt读取持仓股票代码"""
+    holding_file = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
+    if not os.path.exists(holding_file):
+        logger.warning(f"持仓文件不存在: {holding_file}")
+        return []
+    with open(holding_file, 'r', encoding='utf-8') as f:
+        codes = [line.strip() for line in f if line.strip()]
+    logger.info(f"读取到 {len(codes)} 只持仓股票")
+    return codes
+
+
+def merge_holdings(holding_codes: List[str], filtered_codes: List[str]) -> List[str]:
+    """合并持仓股票到筛选结果（去重）"""
+    result = filtered_codes.copy()
+    for code in holding_codes:
+        if code not in result:
+            result.append(code)
+    added = len(result) - len(filtered_codes)
+    if added > 0:
+        logger.info(f"添加 {added} 只持仓股票到结果")
+    return result
+
+
 def save_to_csv(df, date: str) -> str:
     """保存结果到CSV文件"""
     log_dir = get_log_dir()
@@ -171,11 +195,15 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
         logger.info("筛选结果为空，程序结束")
         return []
     
+    # 加入持仓股票
+    holding_codes = get_holding_codes()
+    codes = merge_holdings(holding_codes, codes)
+    
     logger.info("=" * 70)
     logger.info("计算趋势强度评分...")
     logger.info("=" * 70)
     
-    strength_df = trend_score.rank_stocks_by_strength(codes, date)
+    strength_df = trend_score.rank_stocks_by_strength(codes, date, holding_codes=holding_codes)
     
     if not strength_df.empty:
         logger.info(f"最终结果 ({len(codes)} 只，按趋势强度降序排列):")

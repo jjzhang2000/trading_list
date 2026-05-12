@@ -143,7 +143,7 @@ def calculate_trend_strength(stock_code: str, date: str) -> Optional[Dict]:
         return None
 
 
-def rank_stocks_by_strength(stock_codes: List[str], date: str) -> pd.DataFrame:
+def rank_stocks_by_strength(stock_codes: List[str], date: str, holding_codes: List[str] = None) -> pd.DataFrame:
     """
     对股票列表按ST-Slope截面Z-score排序
 
@@ -153,10 +153,15 @@ def rank_stocks_by_strength(stock_codes: List[str], date: str) -> pd.DataFrame:
     Args:
         stock_codes: 股票代码列表
         date: 日期（YYYY-MM-DD格式）
+        holding_codes: 持仓股票代码列表（会在股票名称前加*标记）
 
     Returns:
         DataFrame，按合成得分降序排列
     """
+    if holding_codes is None:
+        holding_codes = []
+    holding_set = set(holding_codes)
+    
     logger.info(f"开始计算 {len(stock_codes)} 只股票的ST-Slope因子...")
 
     results = []
@@ -173,6 +178,13 @@ def rank_stocks_by_strength(stock_codes: List[str], date: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(results)
+
+    # 持仓股票名称前加*标记
+    if holding_set:
+        df['stock_name'] = df.apply(
+            lambda row: '*' + row['stock_name'] if row['stock_code'] in holding_set else row['stock_name'],
+            axis=1
+        )
 
     st_s = df['st_above_pct']
     sl_s = df['slope_60d']

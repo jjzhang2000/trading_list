@@ -59,6 +59,30 @@ from utils.logger import get_logger, get_log_dir
 logger = get_logger(__name__)
 
 
+def get_holding_codes() -> List[str]:
+    """从shareholding.txt读取持仓股票代码"""
+    holding_file = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
+    if not os.path.exists(holding_file):
+        logger.warning(f"持仓文件不存在: {holding_file}")
+        return []
+    with open(holding_file, 'r', encoding='utf-8') as f:
+        codes = [line.strip() for line in f if line.strip()]
+    logger.info(f"读取到 {len(codes)} 只持仓股票")
+    return codes
+
+
+def merge_holdings(holding_codes: List[str], filtered_codes: List[str]) -> List[str]:
+    """合并持仓股票到筛选结果（去重）"""
+    result = filtered_codes.copy()
+    for code in holding_codes:
+        if code not in result:
+            result.append(code)
+    added = len(result) - len(filtered_codes)
+    if added > 0:
+        logger.info(f"添加 {added} 只持仓股票到结果")
+    return result
+
+
 class StoppableThread(threading.Thread):
     """可停止的线程类，避免Python 3.13的daemon线程清理问题"""
     
@@ -670,9 +694,14 @@ class StockFilterGUI:
                     codes = df['stock_code'].tolist() if not df.empty else []
                     self.root.after(0, lambda c=len(codes): self.log_result(f"VP Slope筛选 - 输出: {c} 只股票"))
                 
+                # 加入持仓股票
+                if codes:
+                    holding_codes = get_holding_codes()
+                    codes = merge_holdings(holding_codes, codes)
+                
                 if codes:
                     self.root.after(0, lambda: self.log_result(f"计算趋势强度评分..."))
-                    strength_df = trend_score.rank_stocks_by_strength(codes, date)
+                    strength_df = trend_score.rank_stocks_by_strength(codes, date, holding_codes=holding_codes if codes else [])
                     
                     if not strength_df.empty:
                         self.filtered_list = [
