@@ -131,39 +131,48 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[
     return result
 
 
-def filter_bullish_stocks(date: str, stock_codes: List[str]) -> pd.DataFrame:
+def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: int = 10) -> pd.DataFrame:
     """
-    筛选指定日期Vegas通道为多头（trend_direction=1）的股票
-    
+    筛选指定日期Vegas通道为多头（trend_direction=1）且连续多头天数>=min_bullish_days的股票
+
     Args:
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表
-    
+        min_bullish_days: 要求连续多头排列的最少交易日天数，默认10天
+
     Returns:
         DataFrame，包含列：stock_code, ema12, ema26, ema144, ema169, ema576, ema676, trend_direction
-        只包含trend_direction=1的股票
+        只包含满足连续多头条件的股票
     """
     results = []
-    
-    logger.info(f"开始计算 {len(stock_codes)} 只股票的Vegas通道...")
-    logger.info(f"{'代码':<8} {'收盘价':>10} {'EMA12':>10} {'EMA26':>10} {'EMA144':>10} {'EMA169':>10} {'EMA576':>10} {'EMA676':>10} {'趋势':<6}")
-    logger.info("-" * 95)
-    
+
+    logger.info(f"开始计算 {len(stock_codes)} 只股票的Vegas通道（要求连续多头>= {min_bullish_days} 天）...")
+    logger.info(f"{'代码':<8} {'收盘价':>10} {'EMA12':>10} {'EMA26':>10} {'EMA144':>10} {'EMA169':>10} {'EMA576':>10} {'EMA676':>10} {'趋势':<6} {'连续多头':>8}")
+    logger.info("-" * 105)
+
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
             logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
-        
+
         vegas_df = get_stock_vegas(code, date, days=800)
-        
+
         if vegas_df is not None and not vegas_df.empty:
             last_row = vegas_df.iloc[-1]
             trend = "多头" if last_row['trend_direction'] == 1 else ("空头" if last_row['trend_direction'] == -1 else "震荡")
-            
+
+            # 从最新一天往前数，统计连续多头排列的天数
+            bullish_streak = 0
+            for j in range(len(vegas_df) - 1, -1, -1):
+                if vegas_df.iloc[j]['trend_direction'] == 1:
+                    bullish_streak += 1
+                else:
+                    break
+
             logger.info(f"{code:<8} {last_row.get('close', 0):>10.2f} {last_row['ema12']:>10.2f} {last_row['ema26']:>10.2f} "
                         f"{last_row['ema144']:>10.2f} {last_row['ema169']:>10.2f} {last_row['ema576']:>10.2f} "
-                        f"{last_row['ema676']:>10.2f} {trend:<6}")
-            
-            if last_row['trend_direction'] == 1:
+                        f"{last_row['ema676']:>10.2f} {trend:<6} {bullish_streak:>8}")
+
+            if last_row['trend_direction'] == 1 and bullish_streak >= min_bullish_days:
                 results.append({
                     'stock_code': code,
                     'ema12': last_row['ema12'],

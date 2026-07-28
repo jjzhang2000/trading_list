@@ -5,6 +5,7 @@
 
 功能说明：
     提供图形界面进行数据库初始化、数据提取和股票筛选。
+    支持上证A股（60开头）和ETF指数（51开头）。
 
 界面布局：
     ┌─────────────────────────────────────────────────────────────────┐
@@ -460,7 +461,7 @@ class StockFilterGUI:
         
         算法逻辑：
             1. 初始化HTTP会话和数据库
-            2. 获取上证A股股票列表（60开头）
+            2. 获取上证A股和ETF股票列表
             3. 对每只股票进行增量更新：
                - 如果数据库中没有该股票，下载最近5年的所有数据
                - 如果数据库中已有该股票，检测复权因子变动并更新
@@ -640,10 +641,14 @@ class StockFilterGUI:
                 codes = [code for code, name in self.stock_list]
                 code_to_name = {code: name for code, name in self.stock_list}
                 
-                self.root.after(0, lambda: self.log_result(f"过滤ST股票..."))
+                self.root.after(0, lambda: self.log_result(f"过滤ST股票（ETF跳过）..."))
                 st_count = 0
                 filtered_codes = []
                 for code in codes:
+                    if code.startswith('51'):
+                        # ETF不会有ST标记，直接保留
+                        filtered_codes.append(code)
+                        continue
                     name = code_to_name.get(code, '')
                     if 'ST' in name.upper():
                         st_count += 1

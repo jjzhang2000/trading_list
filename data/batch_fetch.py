@@ -42,6 +42,7 @@ class BatchDataFetcher:
         
         新浪接口支持一次请求多只股票，格式：
         http://hq.sinajs.cn/list=sh600000,sh600001,sh600002
+        支持60开头股票和51开头ETF
         
         Args:
             stock_codes: 股票代码列表
@@ -79,7 +80,8 @@ class BatchDataFetcher:
                             continue
                         
                         fields = data_part.split(',')
-                        if len(fields) < 32:
+                        # ETF字段数可能少于股票（32个），放宽检查
+                        if len(fields) < 10:
                             continue
                         
                         stock_code = code_part
@@ -90,10 +92,10 @@ class BatchDataFetcher:
                             'close': float(fields[3]) if fields[3] else 0,
                             'high': float(fields[4]) if fields[4] else 0,
                             'low': float(fields[5]) if fields[5] else 0,
-                            'volume': int(float(fields[8])) if fields[8] else 0,
-                            'amount': float(fields[9]) if fields[9] else 0,
-                            'date': fields[30],
-                            'time': fields[31]
+                            'volume': int(float(fields[8])) if len(fields) > 8 and fields[8] else 0,
+                            'amount': float(fields[9]) if len(fields) > 9 and fields[9] else 0,
+                            'date': fields[30] if len(fields) > 30 else '',
+                            'time': fields[31] if len(fields) > 31 else ''
                         }
                     except (ValueError, IndexError) as e:
                         continue
@@ -197,7 +199,7 @@ def update_daily_data_batch(stock_codes: List[str] = None, proxy: str = None):
     使用实时行情接口批量获取当日数据，效率更高
     
     Args:
-        stock_codes: 股票代码列表，为None则获取所有上证A股
+        stock_codes: 股票代码列表，为None则获取所有上证A股及ETF
         proxy: 代理服务器
     """
     if stock_codes is None:
@@ -207,7 +209,7 @@ def update_daily_data_batch(stock_codes: List[str] = None, proxy: str = None):
     
     fetcher = BatchDataFetcher(proxy=proxy)
     
-    logger.info(f"开始批量更新 {len(stock_codes)} 只股票的当日数据...")
+    logger.info(f"开始批量更新 {len(stock_codes)} 只证券的当日数据...")
     
     realtime_data = fetcher.fetch_realtime_batch(stock_codes)
     

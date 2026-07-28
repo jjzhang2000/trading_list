@@ -100,7 +100,11 @@ class RealAdjustFactorFetcher:
             import requests
             import pandas as pd
             
-            factor_dict = self.fetch_adjust_factor_from_sina(stock_code)
+            # ETF不需要前复权处理（极少分红拆股）
+            if stock_code.startswith('51'):
+                factor_dict = None
+            else:
+                factor_dict = self.fetch_adjust_factor_from_sina(stock_code)
             
             url = 'http://quotes.sina.cn/cn/api/json_v2.php/CN_MarketDataService.getKLineData'
             params = {
@@ -299,8 +303,105 @@ def update_stock_info(conn, stock_code, df, stock_name=''):
     conn.commit()
 
 
+def get_sh_etf_list():
+    """获取上证ETF指数代码和名称列表（51开头）"""
+    import requests
+    
+    logger.info("尝试从新浪财经API获取上证ETF列表...")
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Referer': 'https://finance.sina.com.cn/'
+    }
+    
+    # 方法1: 使用JSONP端点（akshare验证可用，节点为 etf_hq_fund）
+    try:
+        url = ('https://vip.stock.finance.sina.com.cn/quotes_service/api/jsonp.php/'
+               'IO.XSRV2.CallbackList[\'hq_list\']/Market_Center.getHQNodeDataSimple')
+        params = {
+            'page': 1,
+            'num': 5000,
+            'sort': 'symbol',
+            'asc': 1,
+            'node': 'etf_hq_fund',
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        text = response.text
+        
+        # JSONP格式: IO.XSRV2.CallbackList['hq_list']([{...}, {...}])
+        json_start = text.find('([')
+        json_end = text.rfind('])')
+        
+        if json_start != -1 and json_end != -1:
+            json_str = text[json_start + 1:json_end + 1]
+            data = json.loads(json_str)
+            
+            if isinstance(data, list):
+                all_etfs = []
+                for item in data:
+                    # code字段已经是纯代码（如510050），symbol字段带前缀（如sh510050）
+                    code = item.get('code', '')
+                    
+                    if code.startswith('51'):
+                        all_etfs.append((code, item.get('name', '')))
+                
+                if all_etfs:
+                    seen = set()
+                    unique_etfs = []
+                    for code, name in all_etfs:
+                        if code not in seen:
+                            seen.add(code)
+                            unique_etfs.append((code, name))
+                    unique_etfs.sort(key=lambda x: x[0])
+                    logger.info(f"成功从新浪财经获取 {len(unique_etfs)} 只上证ETF")
+                    return unique_etfs
+    except Exception as e:
+        logger.warning(f"新浪财经ETF JSONP API失败: {e}")
+    
+    # 方法2: 回退到json_v2端点尝试
+    try:
+        url = 'http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData'
+        params = {
+            'page': 1,
+            'num': 5000,
+            'sort': 'symbol',
+            'asc': 1,
+            'node': 'etf_hq_fund',
+            'symbol': '',
+            '_s_r_a': 'page'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        data = response.json()
+        
+        if isinstance(data, list):
+            all_etfs = []
+            for item in data:
+                code = item.get('code', '')
+                
+                if code.startswith('51'):
+                    all_etfs.append((code, item.get('name', '')))
+            
+            if all_etfs:
+                seen = set()
+                unique_etfs = []
+                for code, name in all_etfs:
+                    if code not in seen:
+                        seen.add(code)
+                        unique_etfs.append((code, name))
+                unique_etfs.sort(key=lambda x: x[0])
+                logger.info(f"成功从新浪财经获取 {len(unique_etfs)} 只上证ETF")
+                return unique_etfs
+    except Exception as e:
+        logger.warning(f"新浪财经ETF JSON API失败: {e}")
+    
+    logger.warning("无法获取ETF列表")
+    return []
+
+
 def get_sh_a_stock_list():
-    """获取上证A股股票代码和名称列表（60开头）"""
+    """获取上证A股股票和ETF指数代码和名称列表（60开头股票 + 51开头ETF）"""
     import requests
     
     logger.info("尝试从新浪财经API获取股票列表...")
@@ -335,7 +436,7 @@ def get_sh_a_stock_list():
             if not data or not isinstance(data, list) or len(data) == 0:
                 break
             
-            page_stocks = [(stock['code'], stock.get('name', '')) for stock in data if stock['code'].startswith('60')]
+            page_stocks = [(stock['code'], stock.get('name', '')) for stock in data if stock['code'].startswith(('60', '51'))]
             all_stocks.extend(page_stocks)
             
             logger.debug(f"第{page}页: 获取 {len(page_stocks)} 只股票，累计 {len(all_stocks)} 只")
@@ -355,6 +456,14 @@ def get_sh_a_stock_list():
                     unique_stocks.append((code, name))
             unique_stocks.sort(key=lambda x: x[0])
             logger.info(f"成功从新浪财经获取 {len(unique_stocks)} 只上证A股股票")
+            
+            # 获取ETF列表并合并
+            etf_list = get_sh_etf_list()
+            if etf_list:
+                unique_stocks.extend(etf_list)
+                unique_stocks.sort(key=lambda x: x[0])
+                logger.info(f"合并ETF后共 {len(unique_stocks)} 只证券（股票+ETF）")
+            
             return unique_stocks
     except Exception as e:
         logger.warning(f"新浪财经API失败: {e}")
@@ -401,7 +510,7 @@ def main():
         logger.error("没有获取到股票列表，程序退出")
         return
     
-    logger.info(f"共处理 {total} 只上证A股")
+    logger.info(f"共处理 {total} 只上证A股及ETF")
     
     success_count = 0
     fail_count = 0
