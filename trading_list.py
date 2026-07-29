@@ -228,6 +228,12 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
                 if lr['occ_open'] > 0:
                     op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
                     save_indicator(hcode, date, 'openclosecross', round(op))
+            vp_df = vp_slope.get_stock_slope(hcode, date, days=150)
+            if vp_df is not None and not vp_df.empty:
+                lr = vp_df.iloc[-1]
+                if lr['close'] > 0:
+                    vpp = lr['slope_short'] / lr['close'] * 1000
+                    save_indicator(hcode, date, 'volumeprofile', round(vpp))
     
     logger.info("=" * 70)
     logger.info("计算趋势强度评分...")
