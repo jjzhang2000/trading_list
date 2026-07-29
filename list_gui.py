@@ -581,6 +581,13 @@ class StockFilterGUI:
                                 bw = bb_df.iloc[-1]['bandwidth']
                                 if hasattr(bw, '__float__') and bw == bw:
                                     save_indicator(hcode, date, 'bollingerbands', round(bw))
+                            # OCC
+                            occ_df = occross.get_stock_occ(hcode, date, days=50)
+                            if occ_df is not None and not occ_df.empty:
+                                lr = occ_df.iloc[-1]
+                                if lr['occ_open'] > 0:
+                                    op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
+                                    save_indicator(hcode, date, 'openclosecross', round(op))
                 
                 if codes:
                     self.root.after(0, lambda: self.log_result(f"计算趋势强度评分..."))

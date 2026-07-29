@@ -13,10 +13,12 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date
+from data.read_data import get_stock_price_before_date, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+OCC_COLUMN = 'openclosecross'
 
 
 def calculate_occ(df: pd.DataFrame, period: int = 8, ma_type: str = "tma") -> pd.DataFrame:
@@ -148,6 +150,14 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
         
         if occ_df is not None and not occ_df.empty:
             last_row = occ_df.iloc[-1]
+
+            # 缓存 OCC 偏离度到数据库
+            occ_open = last_row['occ_open']
+            occ_close = last_row['occ_close']
+            if occ_open > 0:
+                occ_pct = (occ_close - occ_open) / occ_open * 1000
+                save_indicator(code, date, OCC_COLUMN, round(occ_pct))
+
             if last_row['trend_direction'] == 1:
                 results.append({
                     'stock_code': code,
