@@ -13,10 +13,12 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date, get_all_stock_codes
+from data.read_data import get_stock_price_before_date, get_all_stock_codes, get_indicator, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+ST_COLUMN = 'supertrend'
 
 
 def calculate_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
@@ -58,6 +60,65 @@ def calculate_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float =
     return result
 
 
+def _get_st_signal(stock_code: str, date: str,
+                   period: int = 10, multiplier: float = 3.0) -> Optional[float]:
+    """
+    获取 st_above_pct 指标值，优先从数据库缓存读取
+
+    逻辑：
+    1. 先从 stock_indicators 表查询当天该股票的 st_above_pct
+    2. 如果存在则直接返回
+    3. 如果不存在则计算 SuperTrend，算出 st_above_pct，存入数据库后返回
+    4. 值会被 clamp 到 [-100, 100]
+
+    Args:
+        stock_code: 股票代码
+        date: 日期（YYYY-MM-DD格式）
+        period: ATR计算周期
+        multiplier: ATR乘数
+
+    Returns:
+        st_above_pct 值（>0为多头，<0为空头），数据不足时返回None
+    """
+    # 优先从缓存读取
+    cached = get_indicator(stock_code, date, ST_COLUMN)
+    if cached is not None:
+        logger.debug(f"SuperTrend: {stock_code} 使用缓存值 {cached}")
+        return float(cached)
+
+    # 缓存未命中，重新计算
+    MIN_DATA_BUFFER = 10
+    min_required = period + MIN_DATA_BUFFER + 50
+
+    df = get_stock_price_before_date(stock_code, date, limit=max(min_required + period, 200))
+
+    if df.empty or len(df) < period + MIN_DATA_BUFFER:
+        logger.warning(f"SuperTrend: 股票 {stock_code} 数据不足 (需要 {period + MIN_DATA_BUFFER} 条, 实际 {len(df)} 条)")
+        return None
+
+    st_df = calculate_supertrend(df, period, multiplier)
+
+    if st_df.empty:
+        logger.warning(f"SuperTrend: 股票 {stock_code} 计算结果为空")
+        return None
+
+    last_row = st_df.iloc[-1]
+    st_line = last_row['supertrend']
+    close = last_row['close']
+
+    if st_line <= 0:
+        logger.warning(f"SuperTrend: 股票 {stock_code} supertrend线值异常 ({st_line:.2f})")
+        return None
+
+    st_pct = (close - st_line) / st_line * 100
+    save_indicator(stock_code, date, ST_COLUMN, round(st_pct))
+
+    trend = "多头" if st_pct > 0 else "空头"
+    logger.info(f"SuperTrend: {stock_code} st_line={st_line:.2f} st_above_pct={st_pct:.2f}% 趋势={trend} (已缓存)")
+
+    return st_pct
+
+
 def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50, 
                          period: int = 10, multiplier: float = 3.0) -> Optional[pd.DataFrame]:
     """
@@ -93,24 +154,30 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     last_row = result.iloc[-1]
     trend = "多头" if last_row['trend_direction'] == 1 else "空头"
     logger.info(f"SuperTrend: {stock_code} supertrend={last_row['supertrend']:.2f} 趋势={trend}")
-    
+
+    # 将 st_above_pct 缓存到数据库
+    st_line = last_row['supertrend']
+    if st_line > 0:
+        st_pct = (last_row['close'] - st_line) / st_line * 100
+        save_indicator(stock_code, end_date, ST_COLUMN, round(st_pct))
+
     return result
 
 
 def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None, 
                           period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
     """
-    筛选指定日期趋势为多头（trend_direction=1）的股票
-    
+    筛选指定日期 st_above_pct > 0（多头）的股票
+
     Args:
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表，如果为None则使用所有股票
         period: ATR计算周期，默认为10
         multiplier: ATR乘数，默认为3.0
-    
+
     Returns:
-        DataFrame，包含列：stock_code, supertrend, trend_direction
-        只包含trend_direction=1的股票
+        DataFrame，包含列：stock_code, st_above_pct
+        只包含 st_above_pct > 0 的股票
     """
     if stock_codes is None:
         stock_codes = get_all_stock_codes()
@@ -121,16 +188,13 @@ def filter_bullish_stocks(date: str, stock_codes: Optional[List[str]] = None,
         if (i + 1) % 100 == 0:
             logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
         
-        st_df = get_stock_supertrend(code, date, days=50, period=period, multiplier=multiplier)
+        st_pct = _get_st_signal(code, date, period, multiplier)
         
-        if st_df is not None and not st_df.empty:
-            last_row = st_df.iloc[-1]
-            if last_row['trend_direction'] == 1:
-                results.append({
-                    'stock_code': code,
-                    'supertrend': last_row['supertrend'],
-                    'trend_direction': last_row['trend_direction']
-                })
+        if st_pct is not None and st_pct > 0:
+            results.append({
+                'stock_code': code,
+                'st_above_pct': round(st_pct, 2),
+            })
     
     bullish_df = pd.DataFrame(results)
     

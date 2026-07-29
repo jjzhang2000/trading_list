@@ -10,24 +10,23 @@
 界面布局：
     ┌─────────────────────────────────────────────────────────────────┐
     │ 数据操作                                                         │
-    │ ┌──────────────┐ ┌──────────────┐ ┌───────────────────────────┐│
-    │ │ 初始化数据库 │ │  提取数据    │ │ 运行结果:                 ││
-    │ └──────────────┘ └──────────────┘ │ [日志信息...]             ││
-    │                                   │                           ││
-    │                                   └───────────────────────────┘│
+    │ ┌──────────────┐ ┌───────────────────────────────────────────┐│
+    │ │  提取数据    │ │ [日志信息...]                              ││
+    │ │ 初始化数据库 │ │                                           ││
+    │ └──────────────┘ └───────────────────────────────────────────┘│
     ├─────────────────────────────────────────────────────────────────┤
     │ 筛选器设置                                                       │
     │ ☑ SuperTrend  ☑ Vegas通道  ☑ 布林带  ☑ OCC  ☑ VP Slope  [开始筛选]│
     ├─────────────────────────────────────────────────────────────────┤
-    │ ┌─────────────────────┐ ┌─────────────────────┐                │
-    │ │ 全部股票            │ │ 筛选结果            │                │
-    │ │ ┌─────────────────┐ │ │ ┌─────────────────┐ │                │
-    │ │ │ 600000          │ │ │ │ 600036          │ │                │
-    │ │ │ 600004          │ │ │ │ 600519          │ │                │
-    │ │ │ ...             │ │ │ │ ...             │ │                │
-    │ │ └─────────────────┘ │ │ └─────────────────┘ │                │
-    │ │ 共 1800 只股票      │ │ 共 25 只股票        │                │
-    │ └─────────────────────┘ └─────────────────────┘                │
+    │ ┌─────────────────────────────────────────────────────────────┐│
+    │ │ 筛选结果                                                    ││
+    │ │ ┌─────────────────────────────────────────────────────────┐ ││
+    │ │ │ 600036                                                  │ ││
+    │ │ │ 600519                                                  │ ││
+    │ │ │ ...                                                     │ ││
+    │ │ └─────────────────────────────────────────────────────────┘ ││
+    │ │ 共 25 只股票                                                ││
+    │ └─────────────────────────────────────────────────────────────┘│
     └─────────────────────────────────────────────────────────────────┘
 
 使用方法：
@@ -105,7 +104,7 @@ class StockFilterGUI:
     Attributes:
         root: Tkinter根窗口
         stock_list: 当前加载的所有股票列表 [(代码, 名称), ...]
-        filtered_list: 筛选后的股票列表 [(代码, 名称), ...]
+        filtered_list: 筛选后的股票数据列表 [{'code', 'name', 'supertrend', 'vegas', ...}, ...]
         is_running: 标记是否有后台任务正在运行
         filter_vars: 筛选器开关变量的字典
         worker_thread: 当前运行的工作线程
@@ -120,10 +119,14 @@ class StockFilterGUI:
         """
         self.root = root
         self.root.title("股票筛选系统")
-        self.root.geometry("1000x700")
+
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        width = screen_width // 3
+        self.root.geometry(f"{width}x{screen_height}+{screen_width - width}+0")
         
         self.stock_list: List[tuple] = []
-        self.filtered_list: List[tuple] = []
+        self.filtered_list: List[dict] = []
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         
@@ -135,16 +138,14 @@ class StockFilterGUI:
         """
         设置UI界面
         
-        将界面分为四个部分：
+        将界面分为三个部分：
         - 上部：数据操作区
         - 中部：筛选器设置区
-        - 下部：股票列表区
-        - 底部：股票查询区
+        - 下部：筛选结果表格
         """
         self.setup_top_frame()
         self.setup_middle_frame()
         self.setup_bottom_frame()
-        self.setup_query_frame()
     
     def cleanup(self):
         """清理资源，在程序退出时调用"""
@@ -160,243 +161,109 @@ class StockFilterGUI:
     def setup_top_frame(self):
         """
         设置上部数据操作区
-        
+
         包含：
-        - 初始化数据库按钮
-        - 提取数据按钮
-        - 运行结果文本框
+        - 左侧垂直排列：提取数据按钮（上）、初始化数据库按钮（下）
+        - 右侧：运行日志文本框
         """
         top_frame = ttk.LabelFrame(self.root, text="数据操作", padding=10)
         top_frame.pack(fill=tk.X, padx=10, pady=5)
-        
+
         btn_frame = ttk.Frame(top_frame)
-        btn_frame.pack(side=tk.LEFT)
-        
-        self.btn_init = ttk.Button(btn_frame, text="初始化数据库", width=15, command=self.on_init_db)
-        self.btn_init.pack(side=tk.LEFT, padx=5)
-        
+        btn_frame.pack(side=tk.LEFT, fill=tk.Y)
+
         self.btn_extract = ttk.Button(btn_frame, text="提取数据", width=15, command=self.on_extract_data)
-        self.btn_extract.pack(side=tk.LEFT, padx=5)
-        
+        self.btn_extract.pack(pady=2)
+
+        self.btn_init = ttk.Button(btn_frame, text="初始化数据库", width=15, command=self.on_init_db)
+        self.btn_init.pack(pady=2)
+
         result_frame = ttk.Frame(top_frame)
         result_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
-        
-        ttk.Label(result_frame, text="运行结果:").pack(anchor=tk.W)
-        self.result_text = scrolledtext.ScrolledText(result_frame, height=6, state=tk.DISABLED)
+
+        self.result_text = scrolledtext.ScrolledText(result_frame, height=4, state=tk.DISABLED)
         self.result_text.pack(fill=tk.BOTH, expand=True)
     
     def setup_middle_frame(self):
         """
         设置中部筛选器设置区
-        
+
         包含：
-        - 5个筛选器复选框（SuperTrend、Vegas、布林带、OCC、VP Slope）
-        - 开始筛选按钮
+        - 第一行：5个筛选器复选框（SuperTrend、Vegas、布林带、OCC、VP Slope）
+        - 第二行：开始筛选按钮
         """
-        middle_frame = ttk.LabelFrame(self.root, text="筛选器设置", padding=10)
+        middle_frame = ttk.LabelFrame(self.root, text="筛选器", padding=10)
         middle_frame.pack(fill=tk.X, padx=10, pady=5)
-        
+
+        # 第一行：复选框
+        filter_row = ttk.Frame(middle_frame)
+        filter_row.pack(fill=tk.X)
+
         self.filter_vars = {}
         filters = [
-            ('supertrend', 'SuperTrend (多头趋势)'),
-            ('vegas', 'Vegas通道 (EMA多头排列)'),
-            ('bollingerband', '布林带 (开口率>10%)'),
-            ('occross', 'OCC指标 (多头趋势)'),
-            ('vp_slope', 'VP Slope (斜率>0)')
+            ('supertrend', 'SuperTrend'),
+            ('vegas', 'Vegas'),
+            ('bollingerband', 'BollingerBands'),
+            ('occross', 'OpenClose Cross'),
+            ('vp_slope', 'VolumeProfile')
         ]
-        
+
         for name, label in filters:
             var = tk.BooleanVar(value=True)
             self.filter_vars[name] = var
-            cb = ttk.Checkbutton(middle_frame, text=label, variable=var)
+            cb = ttk.Checkbutton(filter_row, text=label, variable=var)
             cb.pack(side=tk.LEFT, padx=15)
-        
-        self.btn_filter = ttk.Button(middle_frame, text="开始筛选", width=12, command=self.on_filter)
+
+        # 第二行：按钮
+        btn_row = ttk.Frame(middle_frame)
+        btn_row.pack(fill=tk.X, pady=(5, 0))
+
+        self.btn_filter = ttk.Button(btn_row, text="开始筛选", width=12, command=self.on_filter)
         self.btn_filter.pack(side=tk.RIGHT, padx=10)
     
     def setup_bottom_frame(self):
         """
         设置下部股票列表区
-        
+
         包含：
-        - 左侧列表：显示所有股票
-        - 右侧列表：显示筛选结果
+        - 8列表格：代码、股票、Supertrend、Vegas、BollingerBands、O/C Cross、VolumeProfile、总分
         """
         bottom_frame = ttk.Frame(self.root, padding=10)
         bottom_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        left_frame = ttk.LabelFrame(bottom_frame, text="全部股票", padding=5)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-        
-        self.stock_listbox = tk.Listbox(left_frame, selectmode=tk.EXTENDED)
-        self.stock_listbox.pack(fill=tk.BOTH, expand=True)
-        
-        scrollbar_left = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.stock_listbox.yview)
-        scrollbar_left.pack(side=tk.RIGHT, fill=tk.Y)
-        self.stock_listbox.config(yscrollcommand=scrollbar_left.set)
-        
-        self.stock_count_label = ttk.Label(left_frame, text="共 0 只股票")
-        self.stock_count_label.pack(anchor=tk.W)
-        
-        right_frame = ttk.LabelFrame(bottom_frame, text="筛选结果", padding=5)
-        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
-        
-        self.result_listbox = tk.Listbox(right_frame, selectmode=tk.EXTENDED)
-        self.result_listbox.pack(fill=tk.BOTH, expand=True)
-        
-        scrollbar_right = ttk.Scrollbar(right_frame, orient=tk.VERTICAL, command=self.result_listbox.yview)
-        scrollbar_right.pack(side=tk.RIGHT, fill=tk.Y)
-        self.result_listbox.config(yscrollcommand=scrollbar_right.set)
-        
-        self.result_count_label = ttk.Label(right_frame, text="共 0 只股票")
+
+        result_frame = ttk.LabelFrame(bottom_frame, text="筛选结果", padding=5)
+        result_frame.pack(fill=tk.BOTH, expand=True)
+
+        columns = ('code', 'name', 'supertrend', 'vegas', 'bollingerbands',
+                   'occross', 'volumeprofile', 'total')
+        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='headings')
+
+        self.result_tree.heading('code', text='代码')
+        self.result_tree.heading('name', text='股票')
+        self.result_tree.heading('supertrend', text='Supertrend')
+        self.result_tree.heading('vegas', text='Vegas')
+        self.result_tree.heading('bollingerbands', text='BollingerBands')
+        self.result_tree.heading('occross', text='O/C Cross')
+        self.result_tree.heading('volumeprofile', text='VolumeProfile')
+        self.result_tree.heading('total', text='总分')
+
+        self.result_tree.column('code', width=70, anchor=tk.CENTER)
+        self.result_tree.column('name', width=100, anchor=tk.W)
+        self.result_tree.column('supertrend', width=90, anchor=tk.CENTER)
+        self.result_tree.column('vegas', width=80, anchor=tk.CENTER)
+        self.result_tree.column('bollingerbands', width=100, anchor=tk.CENTER)
+        self.result_tree.column('occross', width=80, anchor=tk.CENTER)
+        self.result_tree.column('volumeprofile', width=100, anchor=tk.CENTER)
+        self.result_tree.column('total', width=60, anchor=tk.CENTER)
+
+        self.result_tree.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(result_frame, orient=tk.VERTICAL, command=self.result_tree.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.result_tree.config(yscrollcommand=scrollbar.set)
+
+        self.result_count_label = ttk.Label(result_frame, text="共 0 只股票")
         self.result_count_label.pack(anchor=tk.W)
-    
-    def setup_query_frame(self):
-        """
-        设置底部股票查询区
-        
-        包含：
-        - 股票代码输入框
-        - 检测按钮
-        - 5个指标结果显示区
-        """
-        query_frame = ttk.LabelFrame(self.root, text="股票查询", padding=10)
-        query_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        input_frame = ttk.Frame(query_frame)
-        input_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Label(input_frame, text="股票代码:").pack(side=tk.LEFT)
-        self.query_code_entry = ttk.Entry(input_frame, width=10)
-        self.query_code_entry.pack(side=tk.LEFT, padx=5)
-        
-        self.btn_query = ttk.Button(input_frame, text="检测", width=8, command=self.on_query_stock)
-        self.btn_query.pack(side=tk.LEFT, padx=5)
-        
-        self.query_stock_name_label = ttk.Label(input_frame, text="")
-        self.query_stock_name_label.pack(side=tk.LEFT, padx=10)
-        
-        result_frame = ttk.Frame(query_frame)
-        result_frame.pack(fill=tk.X)
-        
-        self.indicator_labels = {}
-        indicators = [
-            ('supertrend', 'SuperTrend', '多头' if True else '空头'),
-            ('vegas', 'Vegas通道', '多头排列' if True else '空头排列'),
-            ('bollingerband', '布林带', '开口率: 0%'),
-            ('occross', 'OCC指标', '多头' if True else '空头'),
-            ('vp_slope', 'VP Slope', '斜率: 0')
-        ]
-        
-        for name, label, default_value in indicators:
-            frame = ttk.Frame(result_frame)
-            frame.pack(side=tk.LEFT, padx=15)
-            ttk.Label(frame, text=f"{label}:", font=('', 9, 'bold')).pack(side=tk.LEFT)
-            value_label = ttk.Label(frame, text="--", width=15)
-            value_label.pack(side=tk.LEFT)
-            self.indicator_labels[name] = value_label
-    
-    def on_query_stock(self):
-        """
-        检测按钮回调
-        
-        查询指定股票的5个技术指标结果
-        """
-        stock_code = self.query_code_entry.get().strip()
-        if not stock_code:
-            messagebox.showwarning("警告", "请输入股票代码！")
-            return
-        
-        logger.info(f"开始查询股票: {stock_code}")
-        
-        for label in self.indicator_labels.values():
-            label.config(text="--")
-        self.query_stock_name_label.config(text="")
-        
-        if self.is_running:
-            return
-        
-        self.is_running = True
-        self.btn_query.config(state=tk.DISABLED)
-        
-        def run():
-            try:
-                date = datetime.now().strftime('%Y-%m-%d')
-                
-                stock_name = ""
-                if self.stock_list:
-                    for code, name in self.stock_list:
-                        if code == stock_code:
-                            stock_name = name
-                            break
-                
-                if not stock_name:
-                    stock_name = read_data.get_stock_name(stock_code) or ""
-                
-                logger.info(f"股票名称: {stock_name or '未知'}")
-                self.root.after(0, lambda n=stock_name: self.query_stock_name_label.config(text=n))
-                
-                st_df = supertrend.get_stock_supertrend(stock_code, date, days=50)
-                if st_df is not None and not st_df.empty:
-                    last_row = st_df.iloc[-1]
-                    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
-                    logger.info(f"SuperTrend: {trend}")
-                    self.root.after(0, lambda t=trend: self.indicator_labels['supertrend'].config(text=t))
-                else:
-                    logger.warning("SuperTrend: 数据不足")
-                    self.root.after(0, lambda: self.indicator_labels['supertrend'].config(text="数据不足"))
-                
-                vegas_df = vegas.get_stock_vegas(stock_code, date, days=50)
-                if vegas_df is not None and not vegas_df.empty:
-                    last_row = vegas_df.iloc[-1]
-                    trend = "多头排列" if last_row['trend_direction'] == 1 else "空头排列"
-                    logger.info(f"Vegas通道: {trend}")
-                    self.root.after(0, lambda t=trend: self.indicator_labels['vegas'].config(text=t))
-                else:
-                    logger.warning("Vegas通道: 数据不足")
-                    self.root.after(0, lambda: self.indicator_labels['vegas'].config(text="数据不足"))
-                
-                bb_df = bollingerband.get_stock_bollinger_band(stock_code, date, days=50)
-                if bb_df is not None and not bb_df.empty:
-                    last_row = bb_df.iloc[-1]
-                    bandwidth = last_row['bandwidth']
-                    logger.info(f"布林带开口率: {bandwidth:.2f}%")
-                    self.root.after(0, lambda b=bandwidth: self.indicator_labels['bollingerband'].config(text=f"开口率: {b:.2f}%"))
-                else:
-                    logger.warning("布林带: 数据不足")
-                    self.root.after(0, lambda: self.indicator_labels['bollingerband'].config(text="数据不足"))
-                
-                occ_df = occross.get_stock_occ(stock_code, date, days=50)
-                if occ_df is not None and not occ_df.empty:
-                    last_row = occ_df.iloc[-1]
-                    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
-                    logger.info(f"OCC指标: {trend}")
-                    self.root.after(0, lambda t=trend: self.indicator_labels['occross'].config(text=t))
-                else:
-                    logger.warning("OCC指标: 数据不足")
-                    self.root.after(0, lambda: self.indicator_labels['occross'].config(text="数据不足"))
-                
-                slope_df = vp_slope.get_stock_slope(stock_code, date, days=50)
-                if slope_df is not None and not slope_df.empty:
-                    last_row = slope_df.iloc[-1]
-                    slope_long = last_row['slope_long']
-                    logger.info(f"VP Slope: {slope_long:.4f}")
-                    self.root.after(0, lambda s=slope_long: self.indicator_labels['vp_slope'].config(text=f"斜率: {s:.4f}"))
-                else:
-                    logger.warning("VP Slope: 数据不足")
-                    self.root.after(0, lambda: self.indicator_labels['vp_slope'].config(text="数据不足"))
-                
-                logger.info(f"股票 {stock_code} 查询完成")
-                
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"查询失败: {error_msg}")
-                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"查询失败: {msg}"))
-            finally:
-                self.root.after(0, lambda: self.btn_query.config(state=tk.NORMAL))
-                self.is_running = False
-        
-        threading.Thread(target=run, daemon=True).start()
     
     def log_result(self, message: str):
         """
@@ -431,21 +298,24 @@ class StockFilterGUI:
         """
         if self.is_running:
             return
-        
+
+        if not messagebox.askokcancel("确认", "此操作将清空数据库中所有数据（行情数据、指标缓存、股票信息等），确定继续？", parent=self.root):
+            return
+
         self.is_running = True
         self.set_buttons_state(False)
         self.log_result("开始初始化数据库...")
-        
+
         def run():
             try:
                 init_db.init_database()
                 self.root.after(0, lambda: self.log_result("数据库初始化成功！"))
-                self.root.after(0, lambda: messagebox.showinfo("成功", "数据库初始化成功！"))
+                self.root.after(0, lambda: messagebox.showinfo("成功", "数据库初始化成功！", parent=self.root))
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"初始化失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: self.log_result(f"初始化失败: {msg}"))
-                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"初始化失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"初始化失败: {msg}", parent=self.root))
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
@@ -567,15 +437,14 @@ class StockFilterGUI:
                 conn.close()
                 
                 self.stock_list = read_data.get_all_stock_codes_with_names()
-                self.root.after(0, self.update_stock_list)
                 self.root.after(0, lambda: self.log_result(f"提取完成！成功 {success_count} 只股票, 共 {total_records} 条记录"))
-                self.root.after(0, lambda: messagebox.showinfo("成功", f"提取完成！\n成功: {success_count} 只股票\n共: {total_records} 条记录"))
+                self.root.after(0, lambda: messagebox.showinfo("成功", f"提取完成！\n成功: {success_count} 只股票\n共: {total_records} 条记录", parent=self.root))
                 
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"提取失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: self.log_result(f"提取失败: {msg}"))
-                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"提取失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"提取失败: {msg}", parent=self.root))
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
@@ -583,25 +452,29 @@ class StockFilterGUI:
         self.worker_thread = StoppableThread(target=run)
         self.worker_thread.start()
     
-    def update_stock_list(self):
-        """更新左侧股票列表显示"""
-        self.stock_listbox.delete(0, tk.END)
-        for code, name in self.stock_list:
-            display_text = f"{code} - {name}" if name else code
-            self.stock_listbox.insert(tk.END, display_text)
-        self.stock_count_label.config(text=f"共 {len(self.stock_list)} 只股票")
-    
     def update_result_list(self):
-        """更新右侧筛选结果列表显示"""
-        self.result_listbox.delete(0, tk.END)
+        """更新筛选结果表格显示"""
+        self.result_tree.delete(*self.result_tree.get_children())
         for item in self.filtered_list:
-            if len(item) == 3:
-                code, name, score = item
-                display_text = f"{score:.2f}  {code}  {name}" if name else f"{score:.2f}  {code}"
-            else:
-                code, name = item
-                display_text = f"{code} - {name}" if name else code
-            self.result_listbox.insert(tk.END, display_text)
+            code = item.get('code', '')
+            name = item.get('name', '')
+            supertrend_val = item.get('supertrend', '--')
+            vegas_val = item.get('vegas', '--')
+            bb_val = item.get('bollingerbands', '--')
+            occ_val = item.get('occross', '--')
+            vp_val = item.get('volumeprofile', '--')
+            total = item.get('total', '--')
+
+            supertrend_str = str(supertrend_val) if supertrend_val != '--' else '--'
+            vegas_str = str(vegas_val) if vegas_val != '--' else '--'
+            bb_str = str(bb_val) if bb_val != '--' else '--'
+            occ_str = str(occ_val) if occ_val != '--' else '--'
+            vp_str = str(vp_val) if vp_val != '--' else '--'
+            total_str = str(total) if isinstance(total, (int, float)) else str(total)
+
+            self.result_tree.insert('', tk.END, values=(
+                code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, total_str
+            ))
         self.result_count_label.config(text=f"共 {len(self.filtered_list)} 只股票")
     
     def on_filter(self):
@@ -622,13 +495,12 @@ class StockFilterGUI:
         if not self.stock_list:
             self.stock_list = read_data.get_all_stock_codes_with_names()
             if not self.stock_list:
-                messagebox.showwarning("警告", "数据库中没有股票数据，请先提取数据！")
+                messagebox.showwarning("警告", "数据库中没有股票数据，请先提取数据！", parent=self.root)
                 return
-            self.update_stock_list()
-        
+
         active_filters = [name for name, var in self.filter_vars.items() if var.get()]
         if not active_filters:
-            messagebox.showwarning("警告", "请至少选择一个筛选器！")
+            messagebox.showwarning("警告", "请至少选择一个筛选器！", parent=self.root)
             return
         
         self.is_running = True
@@ -640,22 +512,6 @@ class StockFilterGUI:
                 date = datetime.now().strftime('%Y-%m-%d')
                 codes = [code for code, name in self.stock_list]
                 code_to_name = {code: name for code, name in self.stock_list}
-                
-                self.root.after(0, lambda: self.log_result(f"过滤ST股票（ETF跳过）..."))
-                st_count = 0
-                filtered_codes = []
-                for code in codes:
-                    if code.startswith('51'):
-                        # ETF不会有ST标记，直接保留
-                        filtered_codes.append(code)
-                        continue
-                    name = code_to_name.get(code, '')
-                    if 'ST' in name.upper():
-                        st_count += 1
-                    else:
-                        filtered_codes.append(code)
-                codes = filtered_codes
-                self.root.after(0, lambda s=st_count, c=len(codes): self.log_result(f"过滤掉 {s} 只ST股票，剩余 {c} 只"))
                 
                 if 'supertrend' in active_filters:
                     self.root.after(0, lambda: self.log_result(f"SuperTrend筛选 - 输入: {len(codes)} 只股票"))
@@ -710,7 +566,16 @@ class StockFilterGUI:
                     
                     if not strength_df.empty:
                         self.filtered_list = [
-                            (row['stock_code'], row['stock_name'], row['strength_score'])
+                            {
+                                'code': row['stock_code'],
+                                'name': row['stock_name'],
+                                'supertrend': row.get('supertrend', 0),
+                                'vegas': row.get('vegas', 0),
+                                'bollingerbands': row.get('bollingerbands', 0),
+                                'occross': row.get('openclosecross', 0),
+                                'volumeprofile': row.get('volumeprofile', 0),
+                                'total': row['strength_score'],
+                            }
                             for _, row in strength_df.iterrows()
                         ]
                         self.root.after(0, self.update_result_list)
@@ -723,7 +588,7 @@ class StockFilterGUI:
                         self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
                     else:
                         codes.sort()
-                        self.filtered_list = [(code, code_to_name.get(code, ''), 0) for code in codes]
+                        self.filtered_list = [{'code': code, 'name': code_to_name.get(code, ''), 'total': 0} for code in codes]
                         self.root.after(0, self.update_result_list)
                         self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
                 else:
@@ -733,7 +598,7 @@ class StockFilterGUI:
                 error_msg = str(e)
                 logger.error(f"筛选失败: {error_msg}")
                 self.root.after(0, lambda msg=error_msg: self.log_result(f"筛选失败: {msg}"))
-                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"筛选失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"筛选失败: {msg}", parent=self.root))
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False

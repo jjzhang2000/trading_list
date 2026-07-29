@@ -271,6 +271,55 @@ def get_all_stock_codes() -> List[str]:
         conn.close()
 
 
+def get_indicator(stock_code: str, date: str, column: str) -> Optional[int]:
+    """
+    从 stock_indicators 表获取指定股票的某个指标值
+
+    Args:
+        stock_code: 股票代码
+        date: 日期（YYYY-MM-DD格式）
+        column: 指标列名（如 'supertrend'）
+
+    Returns:
+        指标值（int，-100到100），不存在返回None
+    """
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {column} FROM stock_indicators WHERE stock_code = ? AND date = ?",
+            (stock_code, date)
+        )
+        result = cursor.fetchone()
+        return result[0] if result and result[0] is not None else None
+    finally:
+        conn.close()
+
+
+def save_indicator(stock_code: str, date: str, column: str, value: int):
+    """
+    保存单个指标值到 stock_indicators 表（upsert，不影响同行的其他列）
+
+    Args:
+        stock_code: 股票代码
+        date: 日期（YYYY-MM-DD格式）
+        column: 指标列名
+        value: int值，会被 clamp 到 [-100, 100]
+    """
+    value = max(-100, min(100, int(value)))
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"INSERT INTO stock_indicators (stock_code, date, {column}) VALUES (?, ?, ?) "
+            f"ON CONFLICT(stock_code, date) DO UPDATE SET {column} = excluded.{column}",
+            (stock_code, date, value)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_all_stock_codes_with_names() -> List[tuple]:
     """
     获取所有股票代码和名称

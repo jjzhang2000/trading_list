@@ -214,7 +214,7 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
         logger.info(f"最终结果 ({len(codes)} 只，按趋势强度降序排列):")
         for _, row in strength_df.iterrows():
             logger.info(f"  {row['rank']:3d}. {row['stock_code']} {row['stock_name']}: "
-                        f"{row['strength_score']:.2f}分 ({trend_score.get_strength_label(row['strength_score'])})")
+                        f"{row['strength_score']}分")
         
         save_to_csv(strength_df, date)
     

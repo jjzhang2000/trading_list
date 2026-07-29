@@ -46,6 +46,7 @@ def init_database():
     # 删除现有表（如果存在）
     cursor.execute('DROP TABLE IF EXISTS stock_daily')
     cursor.execute('DROP TABLE IF EXISTS stock_info')
+    cursor.execute('DROP TABLE IF EXISTS stock_indicators')
     
     # 创建股票日线数据表（前复权价格）
     cursor.execute('''
@@ -70,6 +71,20 @@ def init_database():
             total_records INTEGER,
             start_date TEXT,
             end_date TEXT
+        )
+    ''')
+    
+    # 创建指标缓存表（存储每只股票每天的归一化指标值，均为-100~100的整数）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_indicators (
+            stock_code TEXT NOT NULL,
+            date TEXT NOT NULL,
+            supertrend INTEGER,
+            vegas INTEGER,
+            bollingerbands INTEGER,
+            openclosecross INTEGER,
+            volumeprofile INTEGER,
+            UNIQUE(stock_code, date)
         )
     ''')
     
