@@ -202,7 +202,26 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
     
     # 加入持仓股票
     holding_codes = get_holding_codes()
+    codes_before_merge = set(codes)
     codes = merge_holdings(holding_codes, codes)
+
+    # 补算新增持仓股票的指标
+    new_holdings = [c for c in codes if c not in codes_before_merge]
+    if new_holdings:
+        from data.read_data import save_indicator
+        logger.info(f"补算 {len(new_holdings)} 只持仓股票指标...")
+        for hcode in new_holdings:
+            supertrend._get_st_signal(hcode, date)
+            vegas_df = vegas.get_stock_vegas(hcode, date, days=50)
+            if vegas_df is not None and not vegas_df.empty:
+                lr = vegas_df.iloc[-1]
+                vp = (lr['close'] - lr['ema144']) / lr['ema144'] * 100
+                save_indicator(hcode, date, 'vegas', round(vp))
+            bb_df = bollingerband.get_stock_bollinger_band(hcode, date, days=50)
+            if bb_df is not None and not bb_df.empty:
+                bw = bb_df.iloc[-1]['bandwidth']
+                if hasattr(bw, '__float__') and bw == bw:
+                    save_indicator(hcode, date, 'bollingerbands', round(bw))
     
     logger.info("=" * 70)
     logger.info("计算趋势强度评分...")

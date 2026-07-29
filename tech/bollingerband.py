@@ -13,36 +13,38 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date
+from data.read_data import get_stock_price_before_date, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+BB_COLUMN = 'bollingerbands'
 
-def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
+
+def calculate_bollinger_band(df: pd.DataFrame, period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
     """
     计算布林带指标
-    
+
     Args:
         df: DataFrame，必须包含列：close
-        period: 移动平均周期，默认为21
+        period: EMA周期，默认为20
         std_dev: 标准差倍数，默认为2.0
-    
+
     Returns:
         DataFrame，包含列：middle_band, upper_band, lower_band, bandwidth, close
-        
-    使用pandas-ta的bbands函数计算：
-        - 中轨 = 移动平均线（MA）
-        - 上轨 = 中轨 + N × 标准差
-        - 下轨 = 中轨 - N × 标准差
+
+    计算方式：
+        - 中轨 = EMA(20)
+        - 上轨 = 中轨 + 2.0 × 标准差
+        - 下轨 = 中轨 - 2.0 × 标准差
         - 开口率 = (上轨 - 下轨) / 中轨 × 100%
     """
     if df.empty or len(df) < period:
         return pd.DataFrame()
-    
+
     df = df.copy()
-    
-    bb_df = ta.bbands(df['close'], length=period, std=std_dev)
+
+    bb_df = ta.bbands(df['close'], length=period, std=std_dev, mamode='ema')
     
     result = pd.DataFrame()
     if 'date' in df.columns:
@@ -65,7 +67,7 @@ def calculate_bollinger_band(df: pd.DataFrame, period: int = 21, std_dev: float 
 
 
 def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50, 
-                             period: int = 21, std_dev: float = 2.0) -> Optional[pd.DataFrame]:
+                             period: int = 20, std_dev: float = 2.0) -> Optional[pd.DataFrame]:
     """
     计算指定股票的布林带值
     
@@ -106,43 +108,48 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
 
 
 def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: float,
-                               period: int = 21, std_dev: float = 2.0) -> pd.DataFrame:
+                               period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
     """
     筛选指定日期布林带开口率超过阈值且收盘价高于中轨的股票
-    
+
     Args:
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表
         threshold: 开口率阈值（百分比）
-        period: 移动平均周期，默认为21
+        period: EMA周期，默认为20
         std_dev: 标准差倍数，默认为2.0
-    
+
     Returns:
         DataFrame，包含列：stock_code, close, middle_band, upper_band, lower_band, bandwidth
         只包含 bandwidth > threshold 且 close > middle_band 的股票，按bandwidth降序排列
     """
     results = []
-    
+
     logger.info(f"开始计算 {len(stock_codes)} 只股票的布林带...")
-    
+
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
             logger.info(f"  处理进度: {i + 1}/{len(stock_codes)}")
-        
+
         bb_df = get_stock_bollinger_band(code, date, days=50, period=period, std_dev=std_dev)
-        
+
         if bb_df is not None and not bb_df.empty:
             last_row = bb_df.iloc[-1]
-            if pd.notna(last_row['bandwidth']) and last_row['bandwidth'] > threshold:
-                if last_row['close'] > last_row['middle_band']:
-                    results.append({
-                        'stock_code': code,
-                        'close': last_row['close'],
-                        'middle_band': last_row['middle_band'],
-                        'upper_band': last_row['upper_band'],
-                        'lower_band': last_row['lower_band'],
-                        'bandwidth': last_row['bandwidth']
-                    })
+            bandwidth = last_row['bandwidth']
+
+            # 缓存带宽到数据库
+            if pd.notna(bandwidth):
+                save_indicator(code, date, BB_COLUMN, round(bandwidth))
+
+            if bandwidth > threshold and last_row['close'] > last_row['middle_band']:
+                results.append({
+                    'stock_code': code,
+                    'close': last_row['close'],
+                    'middle_band': last_row['middle_band'],
+                    'upper_band': last_row['upper_band'],
+                    'lower_band': last_row['lower_band'],
+                    'bandwidth': last_row['bandwidth']
+                })
     
     result_df = pd.DataFrame(results)
     
