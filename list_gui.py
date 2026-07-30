@@ -139,14 +139,12 @@ class StockFilterGUI:
         """
         设置UI界面
         
-        将界面分为三个部分：
+        将界面分为两个部分：
         - 上部：数据操作区
-        - 中部：筛选器设置区
-        - 下部：筛选结果表格
+        - 下部：筛选器和结果区
         """
         self.setup_top_frame()
         self.setup_middle_frame()
-        self.setup_bottom_frame()
     
     def cleanup(self):
         """清理资源，在程序退出时调用"""
@@ -187,14 +185,15 @@ class StockFilterGUI:
     
     def setup_middle_frame(self):
         """
-        设置中部筛选器设置区
+        设置中部筛选器和结果区
 
         包含：
-        - 第一行：5个筛选器复选框（SuperTrend、Vegas、布林带、OCC、VP Slope）
+        - 第一行：5个筛选器复选框
         - 第二行：开始筛选按钮
+        - 第三行：筛选结果表格（占满剩余空间）
         """
         middle_frame = ttk.LabelFrame(self.root, text="筛选器", padding=10)
-        middle_frame.pack(fill=tk.X, padx=10, pady=5)
+        middle_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         # 第一行：复选框
         filter_row = ttk.Frame(middle_frame)
@@ -221,23 +220,14 @@ class StockFilterGUI:
 
         self.btn_filter = ttk.Button(btn_row, text="开始筛选", width=12, command=self.on_filter)
         self.btn_filter.pack(side=tk.RIGHT, padx=10)
-    
-    def setup_bottom_frame(self):
-        """
-        设置下部股票列表区
 
-        包含：
-        - 8列表格：代码、股票、Supertrend、Vegas、BollingerBands、O/C Cross、VolumeProfile、总分
-        """
-        bottom_frame = ttk.Frame(self.root, padding=10)
-        bottom_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-        result_frame = ttk.LabelFrame(bottom_frame, text="筛选结果", padding=5)
-        result_frame.pack(fill=tk.BOTH, expand=True)
+        # 筛选结果表格
+        tree_frame = ttk.Frame(middle_frame, padding=(0, 5, 0, 0))
+        tree_frame.pack(fill=tk.BOTH, expand=True)
 
         columns = ('code', 'name', 'supertrend', 'vegas', 'bollingerbands',
                    'occross', 'volumeprofile', 'total')
-        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='headings')
+        self.result_tree = ttk.Treeview(tree_frame, columns=columns, show='headings')
 
         self.result_tree.heading('code', text='代码')
         self.result_tree.heading('name', text='股票')
@@ -259,11 +249,11 @@ class StockFilterGUI:
 
         self.result_tree.pack(fill=tk.BOTH, expand=True)
 
-        scrollbar = ttk.Scrollbar(result_frame, orient=tk.VERTICAL, command=self.result_tree.yview)
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.result_tree.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.result_tree.config(yscrollcommand=scrollbar.set)
 
-        self.result_count_label = ttk.Label(result_frame, text="共 0 只股票")
+        self.result_count_label = ttk.Label(tree_frame, text="共 0 只股票")
         self.result_count_label.pack(anchor=tk.W)
     
     def log_result(self, message: str):
