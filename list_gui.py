@@ -54,8 +54,8 @@ import os
 
 from data import init_db, extract_data, read_data
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
-from data.read_data import save_indicator
-from utils.logger import get_logger, get_log_dir
+from data.read_data import save_indicator, get_indicator
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -82,6 +82,56 @@ def merge_holdings(holding_codes: List[str], filtered_codes: List[str]) -> List[
     if added > 0:
         logger.info(f"添加 {added} 只持仓股票到结果")
     return result
+
+
+def _compute_vegas(stock_code: str, date: str) -> int:
+    """计算Vegas指标值并缓存"""
+    vegas_df = vegas.get_stock_vegas(stock_code, date, days=50)
+    if vegas_df is not None and not vegas_df.empty:
+        lr = vegas_df.iloc[-1]
+        vp = (lr['close'] - lr['ema144']) / lr['ema144'] * 100
+        vp = round(vp)
+        save_indicator(stock_code, date, 'vegas', vp)
+        return vp
+    return 0
+
+
+def _compute_bb(stock_code: str, date: str) -> int:
+    """计算布林带指标值并缓存"""
+    bb_df = bollingerband.get_stock_bollinger_band(stock_code, date, days=50)
+    if bb_df is not None and not bb_df.empty:
+        bw = bb_df.iloc[-1]['bandwidth']
+        if hasattr(bw, '__float__') and bw == bw:
+            bw = round(bw)
+            save_indicator(stock_code, date, 'bollingerbands', bw)
+            return bw
+    return 0
+
+
+def _compute_occ(stock_code: str, date: str) -> int:
+    """计算OCC指标值并缓存"""
+    occ_df = occross.get_stock_occ(stock_code, date, days=50)
+    if occ_df is not None and not occ_df.empty:
+        lr = occ_df.iloc[-1]
+        if lr['occ_open'] > 0:
+            op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
+            op = round(op)
+            save_indicator(stock_code, date, 'openclosecross', op)
+            return op
+    return 0
+
+
+def _compute_vp(stock_code: str, date: str) -> int:
+    """计算VP Slope指标值并缓存"""
+    vp_df = vp_slope.get_stock_slope(stock_code, date, days=150)
+    if vp_df is not None and not vp_df.empty:
+        lr = vp_df.iloc[-1]
+        if lr['close'] > 0:
+            vpp = lr['slope_short'] / lr['close'] * 1000
+            vpp = round(vpp)
+            save_indicator(stock_code, date, 'volumeprofile', vpp)
+            return vpp
+    return 0
 
 
 class StoppableThread(threading.Thread):
@@ -214,12 +264,17 @@ class StockFilterGUI:
             cb = ttk.Checkbutton(filter_row, text=label, variable=var)
             cb.pack(side=tk.LEFT, padx=15)
 
-        # 第二行：按钮
+        # 第二行：按钮和查询
         btn_row = ttk.Frame(middle_frame)
         btn_row.pack(fill=tk.X, pady=(5, 0))
 
         self.btn_filter = ttk.Button(btn_row, text="开始筛选", width=12, command=self.on_filter)
-        self.btn_filter.pack(side=tk.RIGHT, padx=10)
+        self.btn_filter.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.btn_query = ttk.Button(btn_row, text="查询", width=6, command=self.on_query)
+        self.btn_query.pack(side=tk.RIGHT, padx=(0, 10))
+        self.query_entry = ttk.Entry(btn_row, width=10)
+        self.query_entry.pack(side=tk.RIGHT, padx=5)
 
         # 筛选结果表格
         tree_frame = ttk.Frame(middle_frame, padding=(0, 5, 0, 0))
@@ -468,6 +523,73 @@ class StockFilterGUI:
             ))
         self.result_count_label.config(text=f"共 {len(self.filtered_list)} 只股票")
     
+    def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
+        """检查Vegas是否通过筛选（多头排列且连续多头>=10天）"""
+        vegas_df = vegas.get_stock_vegas(stock_code, date, days=800)
+        if vegas_df is not None and not vegas_df.empty:
+            if int(vegas_df.iloc[-1]['trend_direction']) != 1:
+                return False
+            # 计算连续多头天数
+            bullish_streak = 0
+            for j in range(len(vegas_df) - 1, -1, -1):
+                if vegas_df.iloc[j]['trend_direction'] == 1:
+                    bullish_streak += 1
+                else:
+                    break
+            return bullish_streak >= 10
+        return False
+
+    def _check_vp_pass(self, stock_code: str, date: str) -> bool:
+        """检查VP Slope是否通过筛选（slope_long > 0）"""
+        vp_df = vp_slope.get_stock_slope(stock_code, date, days=150)
+        if vp_df is not None and not vp_df.empty:
+            return float(vp_df.iloc[-1]['slope_long']) > 0
+        return False
+
+    def on_query(self):
+        """查询按钮回调：弹出当前日期下该股票的5个指标值（缓存未命中则计算）"""
+        stock_code = self.query_entry.get().strip()
+        if not stock_code:
+            messagebox.showwarning("警告", "请输入股票代码！", parent=self.root)
+            return
+
+        date = datetime.now().strftime('%Y-%m-%d')
+
+        def get_or_compute(col, compute_fn):
+            v = get_indicator(stock_code, date, col)
+            if v is not None:
+                return v
+            return compute_fn()
+
+        st_val = get_or_compute('supertrend', lambda: round(supertrend._get_st_signal(stock_code, date) or 0))
+        vegas_val = get_or_compute('vegas', lambda: _compute_vegas(stock_code, date))
+        bb_val = get_or_compute('bollingerbands', lambda: _compute_bb(stock_code, date))
+        occ_val = get_or_compute('openclosecross', lambda: _compute_occ(stock_code, date))
+        vp_val = get_or_compute('volumeprofile', lambda: _compute_vp(stock_code, date))
+
+        st_pass = st_val > 0
+        vegas_pass = self._check_vegas_pass(stock_code, date)
+        bb_pass = bb_val > 10
+        occ_pass = occ_val > 0
+        vp_pass = self._check_vp_pass(stock_code, date)
+
+        green = '\u2714'   # ✔
+        red = '\u2718'     # ✘
+
+        def mark(passed):
+            return green if passed else red
+
+        total = st_val + vegas_val + bb_val + occ_val + vp_val
+        msg = (
+            f"Supertrend: {st_val}  {mark(st_pass)}\n"
+            f"Vegas: {vegas_val}  {mark(vegas_pass)}\n"
+            f"BollingerBands: {bb_val}  {mark(bb_pass)}\n"
+            f"O/C Cross: {occ_val}  {mark(occ_pass)}\n"
+            f"VolumeProfile: {vp_val}  {mark(vp_pass)}\n"
+            f"总分: {total}"
+        )
+        messagebox.showinfo(f"查询结果 - {stock_code}", msg, parent=self.root)
+
     def on_filter(self):
         """
         开始筛选按钮回调
@@ -605,12 +727,6 @@ class StockFilterGUI:
                             for _, row in strength_df.iterrows()
                         ]
                         self.root.after(0, self.update_result_list)
-                        
-                        timestamp = datetime.now().strftime('%H%M%S')
-                        csv_path = os.path.join(get_log_dir(), f"listing-{date}_{timestamp}.csv")
-                        strength_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
-                        self.root.after(0, lambda p=csv_path: self.log_result(f"结果已保存到: {p}"))
-                        
                         self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
                     else:
                         codes.sort()

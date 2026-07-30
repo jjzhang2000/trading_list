@@ -141,7 +141,7 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
             if pd.notna(bandwidth):
                 save_indicator(code, date, BB_COLUMN, round(bandwidth))
 
-            if bandwidth > threshold and last_row['close'] > last_row['middle_band']:
+            if bandwidth > threshold:
                 results.append({
                     'stock_code': code,
                     'close': last_row['close'],
