@@ -19,13 +19,15 @@
     │ ☑ SuperTrend  ☑ Vegas通道  ☑ 布林带  ☑ OCC  ☑ VP Slope  [开始筛选]│
     ├─────────────────────────────────────────────────────────────────┤
     │ ┌─────────────────────────────────────────────────────────────┐│
-    │ │ 筛选结果                                                    ││
+    │ │ 筛选结果（不含持仓）                                        ││
     │ │ ┌─────────────────────────────────────────────────────────┐ ││
-    │ │ │ 600036                                                  │ ││
-    │ │ │ 600519                                                  │ ││
-    │ │ │ ...                                                     │ ││
+    │ │ │ 600036  ...                                             │ ││
     │ │ └─────────────────────────────────────────────────────────┘ ││
-    │ │ 共 25 只股票                                                ││
+    │ ├─────────────────────────────────────────────────────────────┤│
+    │ │ 持仓股票（shareholding.txt）                                ││
+    │ │ ┌─────────────────────────────────────────────────────────┐ ││
+    │ │ │ 600519  ...                                             │ ││
+    │ │ └─────────────────────────────────────────────────────────┘ ││
     │ └─────────────────────────────────────────────────────────────┘│
     └─────────────────────────────────────────────────────────────────┘
 
@@ -155,7 +157,8 @@ class StockFilterGUI:
     Attributes:
         root: Tkinter根窗口
         stock_list: 当前加载的所有股票列表 [(代码, 名称), ...]
-        filtered_list: 筛选后的股票数据列表 [{'code', 'name', 'supertrend', 'vegas', ...}, ...]
+        filtered_list: 筛选结果（不含持仓）数据列表 [{'code', 'name', 'supertrend', ...}, ...]
+        holding_list: 持仓股票数据列表 [{'code', 'name', 'supertrend', ...}, ...]
         is_running: 标记是否有后台任务正在运行
         filter_vars: 筛选器开关变量的字典
         worker_thread: 当前运行的工作线程
@@ -172,12 +175,13 @@ class StockFilterGUI:
         self.root.title("股票筛选系统")
 
         screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
+        screen_height = int(self.root.winfo_screenheight() * 0.94)  # 减去任务栏等占用的高度
         width = screen_width // 3
         self.root.geometry(f"{width}x{screen_height}+{screen_width - width}+0")
         
         self.stock_list: List[tuple] = []
         self.filtered_list: List[dict] = []
+        self.holding_list: List[dict] = []
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         
@@ -240,7 +244,7 @@ class StockFilterGUI:
         包含：
         - 第一行：5个筛选器复选框
         - 第二行：开始筛选按钮
-        - 第三行：筛选结果表格（占满剩余空间）
+        - 第三行：两个等高的结果表格（上：筛选结果不含持仓，下：持仓股票）
         """
         middle_frame = ttk.LabelFrame(self.root, text="筛选器", padding=10)
         middle_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -276,40 +280,22 @@ class StockFilterGUI:
         self.query_entry = ttk.Entry(btn_row, width=10)
         self.query_entry.pack(side=tk.RIGHT, padx=5)
 
-        # 筛选结果表格
-        tree_frame = ttk.Frame(middle_frame, padding=(0, 5, 0, 0))
-        tree_frame.pack(fill=tk.BOTH, expand=True)
+        # 两个等高的结果表格（上：筛选结果，下：持仓股票）
+        tree_container = ttk.Frame(middle_frame, padding=(0, 5, 0, 0))
+        tree_container.pack(fill=tk.BOTH, expand=True)
+        tree_container.columnconfigure(0, weight=1)
+        tree_container.rowconfigure(0, weight=1)
+        tree_container.rowconfigure(1, weight=1)
 
-        columns = ('code', 'name', 'supertrend', 'vegas', 'bollingerbands',
-                   'occross', 'volumeprofile', 'total')
-        self.result_tree = ttk.Treeview(tree_frame, columns=columns, show='headings')
-
-        self.result_tree.heading('code', text='代码')
-        self.result_tree.heading('name', text='股票')
-        self.result_tree.heading('supertrend', text='Supertrend')
-        self.result_tree.heading('vegas', text='Vegas')
-        self.result_tree.heading('bollingerbands', text='BollingerBands')
-        self.result_tree.heading('occross', text='O/C Cross')
-        self.result_tree.heading('volumeprofile', text='VolumeProfile')
-        self.result_tree.heading('total', text='总分')
-
-        self.result_tree.column('code', width=70, anchor=tk.CENTER)
-        self.result_tree.column('name', width=100, anchor=tk.W)
-        self.result_tree.column('supertrend', width=90, anchor=tk.CENTER)
-        self.result_tree.column('vegas', width=80, anchor=tk.CENTER)
-        self.result_tree.column('bollingerbands', width=100, anchor=tk.CENTER)
-        self.result_tree.column('occross', width=80, anchor=tk.CENTER)
-        self.result_tree.column('volumeprofile', width=100, anchor=tk.CENTER)
-        self.result_tree.column('total', width=60, anchor=tk.CENTER)
-
+        filter_tree_frame = ttk.Frame(tree_container)
+        filter_tree_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 2))
+        self.result_tree = self._make_tree(filter_tree_frame)
         self.result_tree.pack(fill=tk.BOTH, expand=True)
 
-        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.result_tree.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.result_tree.config(yscrollcommand=scrollbar.set)
-
-        self.result_count_label = ttk.Label(tree_frame, text="共 0 只股票")
-        self.result_count_label.pack(anchor=tk.W)
+        holding_tree_frame = ttk.Frame(tree_container)
+        holding_tree_frame.grid(row=1, column=0, sticky='nsew', pady=(2, 0))
+        self.holding_tree = self._make_tree(holding_tree_frame)
+        self.holding_tree.pack(fill=tk.BOTH, expand=True)
     
     def log_result(self, message: str):
         """
@@ -498,10 +484,36 @@ class StockFilterGUI:
         self.worker_thread = StoppableThread(target=run)
         self.worker_thread.start()
     
-    def update_result_list(self):
-        """更新筛选结果表格显示"""
-        self.result_tree.delete(*self.result_tree.get_children())
-        for item in self.filtered_list:
+    def _make_tree(self, parent) -> ttk.Treeview:
+        """创建标准的结果表格Treeview"""
+        columns = ('code', 'name', 'supertrend', 'vegas', 'bollingerbands',
+                   'occross', 'volumeprofile', 'total')
+        tree = ttk.Treeview(parent, columns=columns, show='headings')
+
+        tree.heading('code', text='代码')
+        tree.heading('name', text='股票')
+        tree.heading('supertrend', text='Supertrend')
+        tree.heading('vegas', text='Vegas')
+        tree.heading('bollingerbands', text='BollingerBands')
+        tree.heading('occross', text='O/C Cross')
+        tree.heading('volumeprofile', text='VolumeProfile')
+        tree.heading('total', text='总分')
+
+        tree.column('code', width=70, anchor=tk.CENTER)
+        tree.column('name', width=100, anchor=tk.W)
+        tree.column('supertrend', width=90, anchor=tk.CENTER)
+        tree.column('vegas', width=80, anchor=tk.CENTER)
+        tree.column('bollingerbands', width=100, anchor=tk.CENTER)
+        tree.column('occross', width=80, anchor=tk.CENTER)
+        tree.column('volumeprofile', width=100, anchor=tk.CENTER)
+        tree.column('total', width=60, anchor=tk.CENTER)
+
+        return tree
+
+    def _populate_tree(self, tree, items):
+        """填充Treeview数据"""
+        tree.delete(*tree.get_children())
+        for item in items:
             code = item.get('code', '')
             name = item.get('name', '')
             supertrend_val = item.get('supertrend', '--')
@@ -518,10 +530,14 @@ class StockFilterGUI:
             vp_str = str(vp_val) if vp_val != '--' else '--'
             total_str = str(total) if isinstance(total, (int, float)) else str(total)
 
-            self.result_tree.insert('', tk.END, values=(
+            tree.insert('', tk.END, values=(
                 code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, total_str
             ))
-        self.result_count_label.config(text=f"共 {len(self.filtered_list)} 只股票")
+
+    def update_result_list(self):
+        """更新筛选结果表格显示（筛选结果 + 持仓股票两个表）"""
+        self._populate_tree(self.result_tree, self.filtered_list)
+        self._populate_tree(self.holding_tree, self.holding_list)
     
     def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
         """检查Vegas是否通过筛选（多头排列且连续多头>=10天）"""
@@ -594,13 +610,13 @@ class StockFilterGUI:
         """
         开始筛选按钮回调
         
-        根据选中的筛选器依次执行筛选，更新右侧结果列表。
-        
+        根据选中的筛选器依次执行筛选，结果按持仓/非持仓拆分到两个表格。
+
         筛选流程：
             1. 加载数据（如未加载则从数据库读取）
             2. 获取启用的筛选器列表
             3. 在后台线程中依次执行筛选
-            4. 更新右侧结果列表
+            4. 合并持仓股票后评分，拆分为筛选结果与持仓两个列表并刷新表格
         """
         if self.is_running:
             return
@@ -710,11 +726,14 @@ class StockFilterGUI:
                 
                 if codes:
                     self.root.after(0, lambda: self.log_result(f"计算趋势强度评分..."))
-                    strength_df = trend_score.rank_stocks_by_strength(codes, date, holding_codes=holding_codes if codes else [])
-                    
+                    strength_df = trend_score.rank_stocks_by_strength(codes, date)
+                    holding_set = set(holding_codes) if holding_codes else set()
+
                     if not strength_df.empty:
-                        self.filtered_list = [
-                            {
+                        filtered_rows = []
+                        holding_rows = []
+                        for _, row in strength_df.iterrows():
+                            item = {
                                 'code': row['stock_code'],
                                 'name': row['stock_name'],
                                 'supertrend': row.get('supertrend', 0),
@@ -724,15 +743,24 @@ class StockFilterGUI:
                                 'volumeprofile': row.get('volumeprofile', 0),
                                 'total': row['strength_score'],
                             }
-                            for _, row in strength_df.iterrows()
-                        ]
+                            if row['stock_code'] in holding_set:
+                                holding_rows.append(item)
+                            else:
+                                filtered_rows.append(item)
+                        self.filtered_list = filtered_rows
+                        self.holding_list = holding_rows
                         self.root.after(0, self.update_result_list)
-                        self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
+                        self.root.after(0, lambda f=len(filtered_rows), h=len(holding_rows):
+                                       self.log_result(f"筛选完成！筛选结果 {f} 只，持仓 {h} 只"))
                     else:
                         codes.sort()
-                        self.filtered_list = [{'code': code, 'name': code_to_name.get(code, ''), 'total': 0} for code in codes]
+                        filtered_codes = [c for c in codes if c not in holding_set]
+                        holding_codes_in = [c for c in holding_codes if c in set(codes)]
+                        self.filtered_list = [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in filtered_codes]
+                        self.holding_list = [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in holding_codes_in]
                         self.root.after(0, self.update_result_list)
-                        self.root.after(0, lambda c=len(codes): self.log_result(f"筛选完成！共 {c} 只股票"))
+                        self.root.after(0, lambda f=len(filtered_codes), h=len(holding_codes_in):
+                                       self.log_result(f"筛选完成！筛选结果 {f} 只，持仓 {h} 只"))
                 else:
                     self.root.after(0, lambda: self.log_result("筛选结果为空"))
                 
