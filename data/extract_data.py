@@ -101,7 +101,7 @@ class RealAdjustFactorFetcher:
             import pandas as pd
             
             # ETF不需要前复权处理（极少分红拆股）
-            if stock_code.startswith('51'):
+            if stock_code.startswith('5'):
                 factor_dict = None
             else:
                 factor_dict = self.fetch_adjust_factor_from_sina(stock_code)
@@ -304,7 +304,7 @@ def update_stock_info(conn, stock_code, df, stock_name=''):
 
 
 def get_sh_etf_list():
-    """获取上证ETF指数代码和名称列表（51开头）"""
+    """获取上证ETF指数代码和名称列表（5开头）"""
     import requests
     
     logger.info("尝试从新浪财经API获取上证ETF列表...")
@@ -343,7 +343,7 @@ def get_sh_etf_list():
                     # code字段已经是纯代码（如510050），symbol字段带前缀（如sh510050）
                     code = item.get('code', '')
                     
-                    if code.startswith('51'):
+                    if code.startswith('5'):
                         all_etfs.append((code, item.get('name', '')))
                 
                 if all_etfs:
@@ -380,7 +380,7 @@ def get_sh_etf_list():
             for item in data:
                 code = item.get('code', '')
                 
-                if code.startswith('51'):
+                if code.startswith('5'):
                     all_etfs.append((code, item.get('name', '')))
             
             if all_etfs:
@@ -401,7 +401,7 @@ def get_sh_etf_list():
 
 
 def get_sh_a_stock_list():
-    """获取上证A股股票和ETF指数代码和名称列表（60开头股票 + 51开头ETF）"""
+    """获取上证A股股票和ETF指数代码和名称列表（60开头股票 + 5开头ETF）"""
     import requests
     
     logger.info("尝试从新浪财经API获取股票列表...")
@@ -436,7 +436,7 @@ def get_sh_a_stock_list():
             if not data or not isinstance(data, list) or len(data) == 0:
                 break
             
-            page_stocks = [(stock['code'], stock.get('name', '')) for stock in data if stock['code'].startswith(('60', '51'))]
+            page_stocks = [(stock['code'], stock.get('name', '')) for stock in data if stock['code'].startswith(('60', '5'))]
             all_stocks.extend(page_stocks)
             
             logger.debug(f"第{page}页: 获取 {len(page_stocks)} 只股票，累计 {len(all_stocks)} 只")

@@ -5,7 +5,7 @@
 
 功能说明：
     基于技术指标的股票筛选程序，通过命令行运行。
-    支持上证A股（60开头）和ETF指数（51开头）。
+    支持上证A股（60开头）和ETF指数（5开头）。
 
 筛选流程：
     1. 获取所有上证A股和ETF代码
@@ -163,7 +163,7 @@ def run_filter(date: str, bandwidth_threshold: float = 10.0, proxy: Optional[str
     st_count = 0
     filtered_codes = []
     for code in codes:
-        if code.startswith('51'):
+        if code.startswith('5'):
             # ETF不会有ST标记，直接保留
             filtered_codes.append(code)
             continue

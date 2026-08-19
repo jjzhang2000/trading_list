@@ -5,7 +5,7 @@
 
 功能说明：
     提供图形界面进行数据库初始化、数据提取和股票筛选。
-    支持上证A股（60开头）和ETF指数（51开头）。
+    支持上证A股（60开头）和ETF指数（5开头）。
 
 界面布局：
     ┌─────────────────────────────────────────────────────────────────┐
@@ -19,15 +19,12 @@
     │ ☑ SuperTrend  ☑ Vegas通道  ☑ 布林带  ☑ OCC  ☑ VP Slope  [开始筛选]│
     ├─────────────────────────────────────────────────────────────────┤
     │ ┌─────────────────────────────────────────────────────────────┐│
-    │ │ 筛选结果（不含持仓）                                        ││
-    │ │ ┌─────────────────────────────────────────────────────────┐ ││
-    │ │ │ 600036  ...                                             │ ││
-    │ │ └─────────────────────────────────────────────────────────┘ ││
-    │ ├─────────────────────────────────────────────────────────────┤│
-    │ │ 持仓股票（shareholding.txt）                                ││
-    │ │ ┌─────────────────────────────────────────────────────────┐ ││
-    │ │ │ 600519  ...                                             │ ││
-    │ │ └─────────────────────────────────────────────────────────┘ ││
+    │ │ [股票] [ETF] [持仓]  ← Notebook 三个tab                     ││
+    │ │                                                             ││
+    │ │ 股票tab：60开头股票（含持仓）的筛选结果                       ││
+    │ │ ETF tab ：5开头ETF（含持仓）的筛选结果                        ││
+    │ │ 持仓tab ：shareholding.txt 中所有持仓股票的指标计算结果      ││
+    │ │         （不经过筛选流水线，直接计算全部指标）                ││
     │ └─────────────────────────────────────────────────────────────┘│
     └─────────────────────────────────────────────────────────────────┘
 
@@ -180,8 +177,9 @@ class StockFilterGUI:
         self.root.geometry(f"{width}x{screen_height}+{screen_width - width}+0")
         
         self.stock_list: List[tuple] = []
-        self.filtered_list: List[dict] = []
-        self.holding_list: List[dict] = []
+        self.stock_filtered: List[dict] = []   # 股票筛选结果（60开头，扣除持仓）
+        self.etf_filtered: List[dict] = []     # ETF筛选结果（5开头，扣除持仓）
+        self.holding_list: List[dict] = []     # 持仓股票计算结果（不筛选，直接计算指标）
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         
@@ -244,7 +242,7 @@ class StockFilterGUI:
         包含：
         - 第一行：5个筛选器复选框
         - 第二行：开始筛选按钮
-        - 第三行：两个等高的结果表格（上：筛选结果不含持仓，下：持仓股票）
+        - 第三行：Notebook三个tab（股票、ETF、持仓）
         """
         middle_frame = ttk.LabelFrame(self.root, text="筛选器", padding=10)
         middle_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -280,21 +278,26 @@ class StockFilterGUI:
         self.query_entry = ttk.Entry(btn_row, width=10)
         self.query_entry.pack(side=tk.RIGHT, padx=5)
 
-        # 两个等高的结果表格（上：筛选结果，下：持仓股票）
-        tree_container = ttk.Frame(middle_frame, padding=(0, 5, 0, 0))
-        tree_container.pack(fill=tk.BOTH, expand=True)
-        tree_container.columnconfigure(0, weight=1)
-        tree_container.rowconfigure(0, weight=1)
-        tree_container.rowconfigure(1, weight=1)
+        # Notebook：股票 / ETF / 持仓 三个tab
+        style = ttk.Style()
+        style.configure('TNotebook.Tab', padding=(18, 4))
 
-        filter_tree_frame = ttk.Frame(tree_container)
-        filter_tree_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 2))
-        self.result_tree = self._make_tree(filter_tree_frame)
-        self.result_tree.pack(fill=tk.BOTH, expand=True)
+        self.notebook = ttk.Notebook(middle_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
-        holding_tree_frame = ttk.Frame(tree_container)
-        holding_tree_frame.grid(row=1, column=0, sticky='nsew', pady=(2, 0))
-        self.holding_tree = self._make_tree(holding_tree_frame)
+        stock_tab = ttk.Frame(self.notebook)
+        self.notebook.add(stock_tab, text='股票')
+        self.stock_tree = self._make_tree(stock_tab)
+        self.stock_tree.pack(fill=tk.BOTH, expand=True)
+
+        etf_tab = ttk.Frame(self.notebook)
+        self.notebook.add(etf_tab, text='ETF')
+        self.etf_tree = self._make_tree(etf_tab)
+        self.etf_tree.pack(fill=tk.BOTH, expand=True)
+
+        holding_tab = ttk.Frame(self.notebook)
+        self.notebook.add(holding_tab, text='持仓')
+        self.holding_tree = self._make_tree(holding_tab)
         self.holding_tree.pack(fill=tk.BOTH, expand=True)
     
     def log_result(self, message: str):
@@ -535,8 +538,9 @@ class StockFilterGUI:
             ))
 
     def update_result_list(self):
-        """更新筛选结果表格显示（筛选结果 + 持仓股票两个表）"""
-        self._populate_tree(self.result_tree, self.filtered_list)
+        """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab）"""
+        self._populate_tree(self.stock_tree, self.stock_filtered)
+        self._populate_tree(self.etf_tree, self.etf_filtered)
         self._populate_tree(self.holding_tree, self.holding_list)
     
     def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
@@ -606,21 +610,141 @@ class StockFilterGUI:
         )
         messagebox.showinfo(f"查询结果 - {stock_code}", msg, parent=self.root)
 
+    def _run_filter_pipeline(self, codes: list, active_filters: list, date: str, label: str) -> list:
+        """
+        对一组代码依次执行所有启用的筛选器，返回通过筛选的代码列表。
+
+        Args:
+            codes: 待筛选的代码列表
+            active_filters: 启用的筛选器名称列表
+            date: 筛选日期
+            label: 日志标签（如"股票"或"ETF"）
+        Returns:
+            通过所有筛选器的代码列表
+        """
+        if not codes:
+            return []
+
+        if 'supertrend' in active_filters:
+            self.root.after(0, lambda: self.log_result(f"[{label}] SuperTrend筛选 - 输入: {len(codes)}"))
+            df = supertrend.filter_bullish_stocks(date, stock_codes=codes)
+            codes = df['stock_code'].tolist() if not df.empty else []
+            self.root.after(0, lambda c=len(codes): self.log_result(f"[{label}] SuperTrend筛选 - 输出: {c}"))
+            if not codes:
+                return []
+
+        if 'vegas' in active_filters and codes:
+            self.root.after(0, lambda: self.log_result(f"[{label}] Vegas通道筛选 - 输入: {len(codes)}"))
+            df = vegas.filter_bullish_stocks(date, codes)
+            codes = df['stock_code'].tolist() if not df.empty else []
+            self.root.after(0, lambda c=len(codes): self.log_result(f"[{label}] Vegas通道筛选 - 输出: {c}"))
+            if not codes:
+                return []
+
+        if 'bollingerband' in active_filters and codes:
+            self.root.after(0, lambda: self.log_result(f"[{label}] 布林带筛选 - 输入: {len(codes)}"))
+            df = bollingerband.filter_stocks_by_bandwidth(date, codes, threshold=10.0)
+            codes = df['stock_code'].tolist() if not df.empty else []
+            self.root.after(0, lambda c=len(codes): self.log_result(f"[{label}] 布林带筛选 - 输出: {c}"))
+            if not codes:
+                return []
+
+        if 'occross' in active_filters and codes:
+            self.root.after(0, lambda: self.log_result(f"[{label}] OCC指标筛选 - 输入: {len(codes)}"))
+            df = occross.filter_bullish_stocks(date, codes)
+            codes = df['stock_code'].tolist() if not df.empty else []
+            self.root.after(0, lambda c=len(codes): self.log_result(f"[{label}] OCC指标筛选 - 输出: {c}"))
+            if not codes:
+                return []
+
+        if 'vp_slope' in active_filters and codes:
+            self.root.after(0, lambda: self.log_result(f"[{label}] VP Slope筛选 - 输入: {len(codes)}"))
+            df = vp_slope.filter_stocks_by_slope(date, codes)
+            codes = df['stock_code'].tolist() if not df.empty else []
+            self.root.after(0, lambda c=len(codes): self.log_result(f"[{label}] VP Slope筛选 - 输出: {c}"))
+
+        return codes
+
+    def _score_and_build_items(self, codes: list, date: str, code_to_name: dict) -> list:
+        """
+        对筛选通过的代码计算趋势强度评分，构建展示用的item列表。
+
+        Args:
+            codes: 筛选通过的代码列表
+            date: 筛选日期
+            code_to_name: 代码→名称映射
+        Returns:
+            包含指标值的dict列表
+        """
+        if not codes:
+            return []
+
+        self.root.after(0, lambda: self.log_result("计算趋势强度评分..."))
+        strength_df = trend_score.rank_stocks_by_strength(codes, date)
+
+        if not strength_df.empty:
+            items = []
+            for _, row in strength_df.iterrows():
+                items.append({
+                    'code': row['stock_code'],
+                    'name': row['stock_name'],
+                    'supertrend': row.get('supertrend', 0),
+                    'vegas': row.get('vegas', 0),
+                    'bollingerbands': row.get('bollingerbands', 0),
+                    'occross': row.get('openclosecross', 0),
+                    'volumeprofile': row.get('volumeprofile', 0),
+                    'total': row['strength_score'],
+                })
+            return items
+        else:
+            return [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in sorted(codes)]
+
+    def _compute_holding_indicators(self, holding_codes: list, date: str):
+        """为持仓股票补算所有指标（未经过筛选循环，DB中无缓存）"""
+        if not holding_codes:
+            return
+        self.root.after(0, lambda n=len(holding_codes): self.log_result(f"补算 {n} 只持仓股票指标..."))
+        for hcode in holding_codes:
+            supertrend._get_st_signal(hcode, date)
+            vegas_df = vegas.get_stock_vegas(hcode, date, days=50)
+            if vegas_df is not None and not vegas_df.empty:
+                lr = vegas_df.iloc[-1]
+                vp = (lr['close'] - lr['ema144']) / lr['ema144'] * 100
+                save_indicator(hcode, date, 'vegas', round(vp))
+            bb_df = bollingerband.get_stock_bollinger_band(hcode, date, days=50)
+            if bb_df is not None and not bb_df.empty:
+                bw = bb_df.iloc[-1]['bandwidth']
+                if hasattr(bw, '__float__') and bw == bw:
+                    save_indicator(hcode, date, 'bollingerbands', round(bw))
+            occ_df = occross.get_stock_occ(hcode, date, days=50)
+            if occ_df is not None and not occ_df.empty:
+                lr = occ_df.iloc[-1]
+                if lr['occ_open'] > 0:
+                    op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
+                    save_indicator(hcode, date, 'openclosecross', round(op))
+            vp_df = vp_slope.get_stock_slope(hcode, date, days=150)
+            if vp_df is not None and not vp_df.empty:
+                lr = vp_df.iloc[-1]
+                if lr['close'] > 0:
+                    vpp = lr['slope_short'] / lr['close'] * 1000
+                    save_indicator(hcode, date, 'volumeprofile', round(vpp))
+
     def on_filter(self):
         """
         开始筛选按钮回调
-        
-        根据选中的筛选器依次执行筛选，结果按持仓/非持仓拆分到两个表格。
+
+        将股票（60开头）和ETF（5开头）分别筛选（包含持仓），持仓股票单独计算指标。
 
         筛选流程：
             1. 加载数据（如未加载则从数据库读取）
-            2. 获取启用的筛选器列表
-            3. 在后台线程中依次执行筛选
-            4. 合并持仓股票后评分，拆分为筛选结果与持仓两个列表并刷新表格
+            2. 按代码前缀分为股票（60开头）和ETF（5开头）
+            3. 对股票和ETF分别执行筛选流水线（包含持仓股票）
+            4. 对所有持仓股票直接计算指标（不筛选）
+            5. 结果分别填充到三个tab
         """
         if self.is_running:
             return
-        
+
         if not self.stock_list:
             self.stock_list = read_data.get_all_stock_codes_with_names()
             if not self.stock_list:
@@ -631,139 +755,54 @@ class StockFilterGUI:
         if not active_filters:
             messagebox.showwarning("警告", "请至少选择一个筛选器！", parent=self.root)
             return
-        
+
         self.is_running = True
         self.set_buttons_state(False)
         self.log_result(f"开始筛选，启用筛选器: {', '.join(active_filters)}")
-        
+
         def run():
             try:
                 date = datetime.now().strftime('%Y-%m-%d')
-                codes = [code for code, name in self.stock_list]
+                all_codes = [code for code, name in self.stock_list]
                 code_to_name = {code: name for code, name in self.stock_list}
-                
-                if 'supertrend' in active_filters:
-                    self.root.after(0, lambda: self.log_result(f"SuperTrend筛选 - 输入: {len(codes)} 只股票"))
-                    df = supertrend.filter_bullish_stocks(date, stock_codes=codes)
-                    codes = df['stock_code'].tolist() if not df.empty else []
-                    self.root.after(0, lambda c=len(codes): self.log_result(f"SuperTrend筛选 - 输出: {c} 只股票"))
-                    if not codes:
-                        self.root.after(0, lambda: self.log_result("筛选结果为空"))
-                        return
-                
-                if 'vegas' in active_filters and codes:
-                    self.root.after(0, lambda: self.log_result(f"Vegas通道筛选 - 输入: {len(codes)} 只股票"))
-                    df = vegas.filter_bullish_stocks(date, codes)
-                    codes = df['stock_code'].tolist() if not df.empty else []
-                    self.root.after(0, lambda c=len(codes): self.log_result(f"Vegas通道筛选 - 输出: {c} 只股票"))
-                    if not codes:
-                        self.root.after(0, lambda: self.log_result("筛选结果为空"))
-                        return
-                
-                if 'bollingerband' in active_filters and codes:
-                    self.root.after(0, lambda: self.log_result(f"布林带筛选 - 输入: {len(codes)} 只股票"))
-                    df = bollingerband.filter_stocks_by_bandwidth(date, codes, threshold=10.0)
-                    codes = df['stock_code'].tolist() if not df.empty else []
-                    self.root.after(0, lambda c=len(codes): self.log_result(f"布林带筛选 - 输出: {c} 只股票"))
-                    if not codes:
-                        self.root.after(0, lambda: self.log_result("筛选结果为空"))
-                        return
-                
-                if 'occross' in active_filters and codes:
-                    self.root.after(0, lambda: self.log_result(f"OCC指标筛选 - 输入: {len(codes)} 只股票"))
-                    df = occross.filter_bullish_stocks(date, codes)
-                    codes = df['stock_code'].tolist() if not df.empty else []
-                    self.root.after(0, lambda c=len(codes): self.log_result(f"OCC指标筛选 - 输出: {c} 只股票"))
-                    if not codes:
-                        self.root.after(0, lambda: self.log_result("筛选结果为空"))
-                        return
-                
-                if 'vp_slope' in active_filters and codes:
-                    self.root.after(0, lambda: self.log_result(f"VP Slope筛选 - 输入: {len(codes)} 只股票"))
-                    df = vp_slope.filter_stocks_by_slope(date, codes)
-                    codes = df['stock_code'].tolist() if not df.empty else []
-                    self.root.after(0, lambda c=len(codes): self.log_result(f"VP Slope筛选 - 输出: {c} 只股票"))
-                
-                # 加入持仓股票
-                if codes:
-                    holding_codes = get_holding_codes()
-                    codes_before_merge = set(codes)
-                    codes = merge_holdings(holding_codes, codes)
 
-                    # 补算新增持仓股票的指标（未经过筛选循环，DB 中无缓存）
-                    new_holdings = [c for c in codes if c not in codes_before_merge]
-                    if new_holdings:
-                        self.root.after(0, lambda n=len(new_holdings): self.log_result(f"补算 {n} 只持仓股票指标..."))
-                        for hcode in new_holdings:
-                            # SuperTrend
-                            supertrend._get_st_signal(hcode, date)
-                            # Vegas
-                            vegas_df = vegas.get_stock_vegas(hcode, date, days=50)
-                            if vegas_df is not None and not vegas_df.empty:
-                                lr = vegas_df.iloc[-1]
-                                vp = (lr['close'] - lr['ema144']) / lr['ema144'] * 100
-                                save_indicator(hcode, date, 'vegas', round(vp))
-                            # BollingerBand
-                            bb_df = bollingerband.get_stock_bollinger_band(hcode, date, days=50)
-                            if bb_df is not None and not bb_df.empty:
-                                bw = bb_df.iloc[-1]['bandwidth']
-                                if hasattr(bw, '__float__') and bw == bw:
-                                    save_indicator(hcode, date, 'bollingerbands', round(bw))
-                            # OCC
-                            occ_df = occross.get_stock_occ(hcode, date, days=50)
-                            if occ_df is not None and not occ_df.empty:
-                                lr = occ_df.iloc[-1]
-                                if lr['occ_open'] > 0:
-                                    op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
-                                    save_indicator(hcode, date, 'openclosecross', round(op))
-                            # VP Slope
-                            vp_df = vp_slope.get_stock_slope(hcode, date, days=150)
-                            if vp_df is not None and not vp_df.empty:
-                                lr = vp_df.iloc[-1]
-                                if lr['close'] > 0:
-                                    vpp = lr['slope_short'] / lr['close'] * 1000
-                                    save_indicator(hcode, date, 'volumeprofile', round(vpp))
-                
-                if codes:
-                    self.root.after(0, lambda: self.log_result(f"计算趋势强度评分..."))
-                    strength_df = trend_score.rank_stocks_by_strength(codes, date)
-                    holding_set = set(holding_codes) if holding_codes else set()
+                # 读取持仓
+                holding_codes = set(get_holding_codes())
 
-                    if not strength_df.empty:
-                        filtered_rows = []
-                        holding_rows = []
-                        for _, row in strength_df.iterrows():
-                            item = {
-                                'code': row['stock_code'],
-                                'name': row['stock_name'],
-                                'supertrend': row.get('supertrend', 0),
-                                'vegas': row.get('vegas', 0),
-                                'bollingerbands': row.get('bollingerbands', 0),
-                                'occross': row.get('openclosecross', 0),
-                                'volumeprofile': row.get('volumeprofile', 0),
-                                'total': row['strength_score'],
-                            }
-                            if row['stock_code'] in holding_set:
-                                holding_rows.append(item)
-                            else:
-                                filtered_rows.append(item)
-                        self.filtered_list = filtered_rows
-                        self.holding_list = holding_rows
-                        self.root.after(0, self.update_result_list)
-                        self.root.after(0, lambda f=len(filtered_rows), h=len(holding_rows):
-                                       self.log_result(f"筛选完成！筛选结果 {f} 只，持仓 {h} 只"))
-                    else:
-                        codes.sort()
-                        filtered_codes = [c for c in codes if c not in holding_set]
-                        holding_codes_in = [c for c in holding_codes if c in set(codes)]
-                        self.filtered_list = [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in filtered_codes]
-                        self.holding_list = [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in holding_codes_in]
-                        self.root.after(0, self.update_result_list)
-                        self.root.after(0, lambda f=len(filtered_codes), h=len(holding_codes_in):
-                                       self.log_result(f"筛选完成！筛选结果 {f} 只，持仓 {h} 只"))
+                # 按前缀分组（包含持仓）
+                stock_codes = [c for c in all_codes if c.startswith('60')]
+                etf_codes = [c for c in all_codes if c.startswith('5')]
+                holding_list = [c for c in all_codes if c in holding_codes]
+
+                self.root.after(0, lambda: self.log_result(
+                    f"分组: 股票 {len(stock_codes)} 只, ETF {len(etf_codes)} 只, 持仓 {len(holding_list)} 只"))
+
+                # === 股票筛选（60开头，包含持仓）===
+                self.root.after(0, lambda: self.log_result("=== 股票筛选开始 ==="))
+                stock_filtered = self._run_filter_pipeline(stock_codes, active_filters, date, '股票')
+                stock_items = self._score_and_build_items(stock_filtered, date, code_to_name)
+
+                # === ETF筛选（5开头，包含持仓）===
+                self.root.after(0, lambda: self.log_result("=== ETF筛选开始 ==="))
+                etf_filtered = self._run_filter_pipeline(etf_codes, active_filters, date, 'ETF')
+                etf_items = self._score_and_build_items(etf_filtered, date, code_to_name)
+
+                # === 持仓股票计算（不筛选，直接计算指标）===
+                self.root.after(0, lambda: self.log_result("=== 持仓计算开始 ==="))
+                if holding_list:
+                    self._compute_holding_indicators(holding_list, date)
+                    holding_items = self._score_and_build_items(holding_list, date, code_to_name)
                 else:
-                    self.root.after(0, lambda: self.log_result("筛选结果为空"))
-                
+                    holding_items = []
+
+                # 更新结果
+                self.stock_filtered = stock_items
+                self.etf_filtered = etf_items
+                self.holding_list = holding_items
+                self.root.after(0, self.update_result_list)
+                self.root.after(0, lambda: self.log_result(
+                    f"筛选完成！股票 {len(stock_items)} 只, ETF {len(etf_items)} 只, 持仓 {len(holding_items)} 只"))
+
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"筛选失败: {error_msg}")
@@ -772,7 +811,7 @@ class StockFilterGUI:
             finally:
                 self.root.after(0, lambda: self.set_buttons_state(True))
                 self.is_running = False
-        
+
         self.worker_thread = StoppableThread(target=run)
         self.worker_thread.start()
 

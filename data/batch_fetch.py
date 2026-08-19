@@ -42,7 +42,7 @@ class BatchDataFetcher:
         
         新浪接口支持一次请求多只股票，格式：
         http://hq.sinajs.cn/list=sh600000,sh600001,sh600002
-        支持60开头股票和51开头ETF
+        支持60开头股票和5开头ETF
         
         Args:
             stock_codes: 股票代码列表
