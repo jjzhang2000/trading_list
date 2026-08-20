@@ -769,20 +769,20 @@ class StockFilterGUI:
                 # 读取持仓
                 holding_codes = set(get_holding_codes())
 
-                # 按前缀分组（包含持仓）
-                stock_codes = [c for c in all_codes if c.startswith('60')]
-                etf_codes = [c for c in all_codes if c.startswith('5')]
+                # 按前缀分组（扣除持仓）
+                stock_codes = [c for c in all_codes if c.startswith('60') and c not in holding_codes]
+                etf_codes = [c for c in all_codes if c.startswith('5') and c not in holding_codes]
                 holding_list = [c for c in all_codes if c in holding_codes]
 
                 self.root.after(0, lambda: self.log_result(
                     f"分组: 股票 {len(stock_codes)} 只, ETF {len(etf_codes)} 只, 持仓 {len(holding_list)} 只"))
 
-                # === 股票筛选（60开头，包含持仓）===
+                # === 股票筛选（60开头，扣除持仓）===
                 self.root.after(0, lambda: self.log_result("=== 股票筛选开始 ==="))
                 stock_filtered = self._run_filter_pipeline(stock_codes, active_filters, date, '股票')
                 stock_items = self._score_and_build_items(stock_filtered, date, code_to_name)
 
-                # === ETF筛选（5开头，包含持仓）===
+                # === ETF筛选（5开头，扣除持仓）===
                 self.root.after(0, lambda: self.log_result("=== ETF筛选开始 ==="))
                 etf_filtered = self._run_filter_pipeline(etf_codes, active_filters, date, 'ETF')
                 etf_items = self._score_and_build_items(etf_filtered, date, code_to_name)
