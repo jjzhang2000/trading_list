@@ -10,6 +10,8 @@
 trading_list/
 ├── trading_list.py       # CLI筛选程序
 ├── list_gui.py           # GUI筛选程序（tkinter）
+├── kline_window.py       # K线图窗口模块（pywebview）
+├── kline_standalone.py   # K线图独立窗口脚本
 ├── tech/                 # 技术指标模块
 │   ├── supertrend.py     # SuperTrend指标
 │   ├── vegas.py          # Vegas通道

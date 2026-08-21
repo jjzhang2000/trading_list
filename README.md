@@ -10,6 +10,7 @@
 - **ST-Slope 截面排序**：基于SuperTrend偏离度和对数斜率的Z-score合成评分
 - **趋势强度评分**：综合评分系统，量化多头趋势强弱
 - **持仓股票管理**：自动加入持仓股票；GUI中结果分三个tab展示（股票、ETF、持仓）
+- **K线图查看**：双击股票/ETF打开独立窗口，使用lightweight-charts展示K线图和成交量
 - **ST股票过滤**：自动过滤名称含ST的股票（ETF自动跳过ST检查）
 - **双界面支持**：命令行(CLI)和图形界面(GUI)
 
@@ -19,6 +20,8 @@
 trading_list/
 ├── trading_list.py       # 股票筛选主程序（命令行）
 ├── list_gui.py           # 股票筛选主程序（图形界面）
+├── kline_window.py       # K线图窗口模块（使用pywebview）
+├── kline_standalone.py   # K线图独立窗口脚本
 ├── requirements.txt      # 依赖项文件
 ├── .gitignore            # Git忽略文件
 ├── tech/                 # 技术指标模块目录

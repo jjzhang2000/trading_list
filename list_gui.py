@@ -55,6 +55,7 @@ from data import init_db, extract_data, read_data
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 from data.read_data import save_indicator, get_indicator
 from utils.logger import get_logger
+from kline_window import KLineWindow
 
 logger = get_logger(__name__)
 
@@ -182,6 +183,7 @@ class StockFilterGUI:
         self.holding_list: List[dict] = []     # 持仓股票计算结果（不筛选，直接计算指标）
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
+        self.kline_window: Optional[KLineWindow] = None  # K线图窗口
         
         self.setup_ui()
         
@@ -203,6 +205,10 @@ class StockFilterGUI:
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.stop()
             self.worker_thread.join(timeout=1.0)
+        
+        # 关闭所有K线图窗口
+        if self.kline_window:
+            self.kline_window.close()
         
         import logging
         for handler in logging.getLogger().handlers:
@@ -511,6 +517,9 @@ class StockFilterGUI:
         tree.column('volumeprofile', width=100, anchor=tk.CENTER)
         tree.column('total', width=60, anchor=tk.CENTER)
 
+        # 绑定双击事件打开K线图
+        tree.bind('<Double-1>', self._on_tree_double_click)
+
         return tree
 
     def _populate_tree(self, tree, items):
@@ -536,6 +545,35 @@ class StockFilterGUI:
             tree.insert('', tk.END, values=(
                 code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, total_str
             ))
+
+    def _on_tree_double_click(self, event):
+        """
+        Treeview 双击事件处理：打开K线图窗口
+        
+        Args:
+            event: 双击事件
+        """
+        tree = event.widget
+        selection = tree.selection()
+        if not selection:
+            return
+        
+        item = tree.item(selection[0])
+        values = item['values']
+        if not values or len(values) < 2:
+            return
+        
+        stock_code = str(values[0])
+        stock_name = str(values[1])
+        
+        logger.info(f"双击股票: {stock_code} - {stock_name}")
+        
+        # 创建或更新K线图窗口
+        if self.kline_window is None:
+            self.kline_window = KLineWindow()
+        
+        # 直接调用 show()，内部会处理线程
+        self.kline_window.show(stock_code, stock_name)
 
     def update_result_list(self):
         """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab）"""
