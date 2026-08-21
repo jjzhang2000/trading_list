@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 K线图窗口模块
-使用独立进程显示K线图窗口，避免阻塞主GUI
+单窗口，只显示最新双击的股票K线图
 """
 
 import subprocess
 import sys
 import os
+import multiprocessing
 from typing import List, Dict
 from utils.logger import get_logger
 
@@ -14,7 +15,7 @@ logger = get_logger(__name__)
 
 
 def get_kline_html() -> str:
-    """生成K线图HTML页面"""
+    """生成K线图HTML页面（单股票版本）"""
     return '''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -28,11 +29,22 @@ def get_kline_html() -> str:
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1e1e1e;
             color: #d4d4d4;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #header {
+            background: #252526;
+            border-bottom: 1px solid #3c3c3c;
+            padding: 12px 16px;
+            font-size: 16px;
+            font-weight: bold;
+            flex-shrink: 0;
         }
         #chart-container {
-            width: 100%;
-            height: 100vh;
+            flex: 1;
             position: relative;
+            overflow: hidden;
         }
         .info-bar {
             position: absolute;
@@ -52,6 +64,7 @@ def get_kline_html() -> str:
     </style>
 </head>
 <body>
+    <div id="header">K线图</div>
     <div id="chart-container">
         <div class="info-bar" id="info-bar"></div>
     </div>
@@ -60,6 +73,8 @@ def get_kline_html() -> str:
         let chart = null;
         let candleSeries = null;
         let volumeSeries = null;
+        let currentStockCode = null;
+        let currentStockName = null;
         
         function initChart() {
             const container = document.getElementById('chart-container');
@@ -98,13 +113,16 @@ def get_kline_html() -> str:
                 scaleMargins: { top: 0.8, bottom: 0 },
             });
             
-            window.addEventListener('resize', () => {
+            // 监听resize
+            const resizeObserver = new ResizeObserver(() => {
                 chart.applyOptions({
                     width: container.clientWidth,
                     height: container.clientHeight,
                 });
             });
+            resizeObserver.observe(container);
             
+            // 监听鼠标移动更新info bar
             chart.subscribeCrosshairMove(param => {
                 if (!param.time || !param.point) {
                     updateInfoBar(null);
@@ -125,7 +143,12 @@ def get_kline_html() -> str:
         
         function updateInfoBar(data) {
             const infoBar = document.getElementById('info-bar');
-            if (!data) { infoBar.innerHTML = ''; return; }
+            if (!infoBar) return;
+            
+            if (!data) { 
+                infoBar.innerHTML = ''; 
+                return; 
+            }
             
             const change = data.close - data.open;
             const changePct = (change / data.open * 100).toFixed(2);
@@ -165,10 +188,23 @@ def get_kline_html() -> str:
             });
         }
         
-        async function loadKLine(code) {
+        async function showStock(stockCode, stockName) {
             try {
                 await waitForApi();
-                const result = await window.pywebview.api.get_kline_data(code, 120);
+                
+                // 更新标题
+                document.getElementById('header').textContent = `${stockName} (${stockCode})`;
+                
+                currentStockCode = stockCode;
+                currentStockName = stockName;
+                
+                // 如果chart未初始化，先初始化
+                if (!chart) {
+                    initChart();
+                }
+                
+                // 加载数据
+                const result = await window.pywebview.api.get_kline_data(stockCode, 120);
                 if (result && result.length > 0) {
                     const candles = result.map(d => ({
                         time: d.date, open: d.open,
@@ -184,13 +220,9 @@ def get_kline_html() -> str:
                     chart.timeScale().fitContent();
                 }
             } catch (e) {
-                console.error('加载K线数据失败:', e);
+                console.error('显示股票失败:', e);
             }
         }
-        
-        window.addEventListener('DOMContentLoaded', () => {
-            initChart();
-        });
     </script>
 </body>
 </html>'''
@@ -236,54 +268,82 @@ class KLineAPI:
 
 
 class KLineWindow:
-    """K线图窗口类 - 使用独立进程"""
+    """K线图窗口类 - 单窗口，只显示最新双击的股票"""
     
     def __init__(self):
         """初始化K线图窗口"""
-        self._processes = []  # 跟踪所有启动的进程
+        self._process = None
+        self._cmd_queue = None
         
     def show(self, stock_code: str, stock_name: str):
         """
-        显示K线图窗口（启动独立进程）
+        显示K线图（只显示最新双击的股票）
         
         Args:
             stock_code: 股票代码
             stock_name: 股票名称
         """
         try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            kline_script = os.path.join(current_dir, 'kline_standalone.py')
+            # 如果进程不存在，启动新进程
+            if self._process is None or not self._process.is_alive():
+                logger.info(f"启动K线图进程: {stock_code} - {stock_name}")
+                
+                # 创建命令队列
+                self._cmd_queue = multiprocessing.Queue()
+                
+                # 导入并启动子进程
+                from kline_standalone import run_kline_window
+                self._process = multiprocessing.Process(
+                    target=run_kline_window,
+                    args=(self._cmd_queue,)
+                )
+                self._process.daemon = True
+                self._process.start()
+                
+                logger.info(f"K线图进程已启动，PID: {self._process.pid}")
+                
+                # 等待窗口初始化
+                import time
+                time.sleep(1)
             
-            # 检查脚本是否存在
-            if not os.path.exists(kline_script):
-                logger.error(f"K线图脚本不存在: {kline_script}")
-                return
-            
-            logger.info(f"启动K线图进程: {stock_code} - {stock_name}")
-            
-            # 启动子进程，输出直接显示在控制台以便调试
-            process = subprocess.Popen(
-                [sys.executable, kline_script, stock_code, stock_name],
-                cwd=current_dir
-            )
-            
-            self._processes.append(process)
-            logger.info(f"K线图进程已启动，PID: {process.pid}")
+            # 发送显示股票命令（只显示最新双击的股票）
+            if self._cmd_queue is not None:
+                self._cmd_queue.put({
+                    'action': 'show_stock',
+                    'stock_code': stock_code,
+                    'stock_name': stock_name
+                })
+                logger.info(f"发送显示股票命令: {stock_code} - {stock_name}")
                 
         except Exception as e:
-            logger.error(f"启动K线图窗口失败: {e}", exc_info=True)
+            logger.error(f"显示K线图失败: {e}", exc_info=True)
     
     def close(self):
-        """关闭所有K线图窗口"""
-        for process in self._processes:
-            if process.poll() is None:
-                try:
-                    process.terminate()
-                    process.wait(timeout=2)
-                except:
-                    try:
-                        process.kill()
-                    except:
-                        pass
-        self._processes.clear()
-        logger.info("所有K线图窗口已关闭")
+        """关闭K线图窗口"""
+        if self._process and self._process.is_alive():
+            try:
+                # 发送关闭命令
+                if self._cmd_queue is not None:
+                    self._cmd_queue.put({'action': 'close'})
+                
+                # 等待进程退出
+                self._process.join(timeout=2)
+                
+                # 如果进程仍在运行，强制终止
+                if self._process.is_alive():
+                    self._process.terminate()
+                    self._process.join(timeout=1)
+            except Exception as e:
+                logger.error(f"关闭K线图窗口失败: {e}", exc_info=True)
+        
+        # 清理队列
+        if self._cmd_queue is not None:
+            try:
+                self._cmd_queue.close()
+                self._cmd_queue.join_thread()
+            except:
+                pass
+        
+        self._process = None
+        self._cmd_queue = None
+        logger.info("K线图窗口已关闭")

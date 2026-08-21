@@ -1,27 +1,29 @@
 # -*- coding: utf-8 -*-
 """
 K线图独立窗口脚本
-通过命令行参数接收股票代码，显示K线图窗口
+支持多tab显示，通过队列接收命令动态添加股票
 """
 
 import sys
 import traceback
+import multiprocessing
+import time
+import threading
 
-def main():
-    """主函数"""
+
+def run_kline_window(cmd_queue):
+    """
+    K线图窗口主函数（供 multiprocessing.Process 调用）
+    
+    Args:
+        cmd_queue: 命令队列，用于接收添加/关闭股票的命令
+    """
     try:
-        print(f"[DEBUG] 启动K线图窗口: {sys.argv[1]} - {sys.argv[2]}")
+        print(f"[DEBUG] 启动K线图窗口进程，PID: {multiprocessing.current_process().pid}")
         sys.stdout.flush()
         
         import webview
         from kline_window import KLineAPI, get_kline_html
-        
-        if len(sys.argv) < 3:
-            print("用法: python kline_standalone.py <股票代码> <股票名称>")
-            sys.exit(1)
-        
-        stock_code = sys.argv[1]
-        stock_name = sys.argv[2]
         
         print(f"[DEBUG] 创建API实例...")
         sys.stdout.flush()
@@ -40,7 +42,7 @@ def main():
         
         # 创建窗口
         window = webview.create_window(
-            title=f'{stock_code} - {stock_name} K线图',
+            title='K线图',
             html=html,
             width=1000,
             height=700,
@@ -51,22 +53,81 @@ def main():
         print(f"[DEBUG] 设置回调...")
         sys.stdout.flush()
         
+        # 窗口加载完成标志
+        window_loaded = False
+        
         # 设置窗口加载完成回调
         def on_loaded():
-            print(f"[DEBUG] K线图窗口已加载: {stock_code}")
+            nonlocal window_loaded
+            print(f"[DEBUG] K线图窗口已加载")
             sys.stdout.flush()
+            window_loaded = True
             # 等待 JavaScript 完全初始化
-            import time
             time.sleep(0.3)
-            try:
-                window.evaluate_js(f'loadKLine("{stock_code}")')
-                print(f"[DEBUG] K线数据加载成功")
-                sys.stdout.flush()
-            except Exception as e:
-                print(f"[ERROR] 加载K线数据失败: {e}")
-                sys.stdout.flush()
         
         window.events.loaded += on_loaded
+        
+        print(f"[DEBUG] 启动命令监听线程...")
+        sys.stdout.flush()
+        
+        # 命令监听函数
+        def listen_commands():
+            print(f"[DEBUG] 开始监听命令队列...")
+            sys.stdout.flush()
+            
+            while True:
+                try:
+                    # 非阻塞获取命令
+                    try:
+                        cmd = cmd_queue.get(timeout=0.5)
+                    except:
+                        continue
+                    
+                    if cmd is None:
+                        print(f"[DEBUG] 收到退出信号")
+                        sys.stdout.flush()
+                        break
+                    
+                    action = cmd.get('action')
+                    
+                    if action == 'close':
+                        print(f"[DEBUG] 收到关闭命令")
+                        sys.stdout.flush()
+                        window.destroy()
+                        break
+                    
+                    elif action == 'show_stock':
+                        stock_code = cmd.get('stock_code')
+                        stock_name = cmd.get('stock_name')
+                        print(f"[DEBUG] 收到显示股票命令: {stock_code} - {stock_name}")
+                        sys.stdout.flush()
+                        
+                        # 等待窗口加载完成
+                        if not window_loaded:
+                            print(f"[DEBUG] 等待窗口加载...")
+                            sys.stdout.flush()
+                            for _ in range(10):
+                                time.sleep(0.1)
+                                if window_loaded:
+                                    break
+                        
+                        # 调用 JavaScript 函数显示股票
+                        try:
+                            window.evaluate_js(f'showStock("{stock_code}", "{stock_name}")')
+                            print(f"[DEBUG] 已调用 showStock: {stock_code}")
+                            sys.stdout.flush()
+                        except Exception as e:
+                            print(f"[ERROR] 调用 showStock 失败: {e}")
+                            sys.stdout.flush()
+                    
+                except Exception as e:
+                    print(f"[ERROR] 命令监听异常: {e}")
+                    traceback.print_exc()
+                    sys.stdout.flush()
+        
+        # 启动命令监听线程
+        cmd_thread = threading.Thread(target=listen_commands, daemon=True)
+        cmd_thread.start()
         
         print(f"[DEBUG] 启动webview事件循环...")
         sys.stdout.flush()
@@ -76,6 +137,30 @@ def main():
         
         print(f"[DEBUG] webview事件循环结束")
         sys.stdout.flush()
+        
+    except Exception as e:
+        print(f"[ERROR] 发生异常: {e}")
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.exit(1)
+
+
+def main():
+    """主函数（独立运行模式）"""
+    try:
+        if len(sys.argv) < 2:
+            print("用法: python kline_standalone.py <队列名称>")
+            sys.exit(1)
+        
+        queue_name = sys.argv[1]
+        print(f"[DEBUG] 启动K线图窗口，队列: {queue_name}")
+        sys.stdout.flush()
+        
+        # 获取队列引用
+        cmd_queue = multiprocessing.Queue(queue_name)
+        
+        # 运行窗口
+        run_kline_window(cmd_queue)
         
     except Exception as e:
         print(f"[ERROR] 发生异常: {e}")
