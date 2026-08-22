@@ -11,8 +11,9 @@
     ┌─────────────────────────────────────────────────────────────────┐
     │ 数据操作                                                         │
     │ ┌──────────────┐ ┌───────────────────────────────────────────┐│
-    │ │  提取数据    │ │ [日志信息...]                              ││
+    │ │ 提取股票数据 │ │ [日志信息...]                              ││
     │ │ 初始化数据库 │ │                                           ││
+    │ │ 迁移交易流水 │ │                                           ││
     │ └──────────────┘ └───────────────────────────────────────────┘│
     ├─────────────────────────────────────────────────────────────────┤
     │ 筛选器设置                                                       │
@@ -33,7 +34,7 @@
 
 操作流程：
     1. 点击"初始化数据库"清空或创建数据库
-    2. 点击"提取数据"从新浪财经获取股票数据
+    2. 点击"提取股票数据"从新浪财经获取股票数据
     3. 选择需要启用的筛选器（默认全部启用）
     4. 点击"开始筛选"执行筛选
 
@@ -51,7 +52,7 @@ from typing import List, Optional
 import atexit
 import os
 
-from data import init_db, extract_data, read_data
+from data import init_db, extract_data, read_data, migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 from data.read_data import save_indicator, get_indicator
 from utils.logger import get_logger
@@ -233,7 +234,7 @@ class StockFilterGUI:
         设置上部数据操作区
 
         包含：
-        - 左侧垂直排列：提取数据按钮（上）、初始化数据库按钮（下）
+        - 左侧垂直排列：提取股票数据按钮、初始化数据库按钮、迁移交易流水按钮
         - 右侧：运行日志文本框
         """
         top_frame = ttk.LabelFrame(self.root, text="数据操作", padding=10)
@@ -242,11 +243,14 @@ class StockFilterGUI:
         btn_frame = ttk.Frame(top_frame)
         btn_frame.pack(side=tk.LEFT, fill=tk.Y)
 
-        self.btn_extract = ttk.Button(btn_frame, text="提取数据", width=15, command=self.on_extract_data)
+        self.btn_extract = ttk.Button(btn_frame, text="提取股票数据", width=15, command=self.on_extract_data)
         self.btn_extract.pack(pady=2)
 
         self.btn_init = ttk.Button(btn_frame, text="初始化数据库", width=15, command=self.on_init_db)
         self.btn_init.pack(pady=2)
+
+        self.btn_migrate = ttk.Button(btn_frame, text="迁移交易流水", width=15, command=self.on_migrate_trades)
+        self.btn_migrate.pack(pady=2)
 
         result_frame = ttk.Frame(top_frame)
         result_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
@@ -342,6 +346,7 @@ class StockFilterGUI:
         state = tk.NORMAL if enabled else tk.DISABLED
         self.btn_init.config(state=state)
         self.btn_extract.config(state=state)
+        self.btn_migrate.config(state=state)
         self.btn_filter.config(state=state)
     
     def on_init_db(self):
@@ -377,9 +382,39 @@ class StockFilterGUI:
         self.worker_thread = StoppableThread(target=run)
         self.worker_thread.start()
     
+    def on_migrate_trades(self):
+        """
+        迁移交易流水按钮回调
+
+        在后台线程中从 Excel 文件迁移交易流水到数据库，完成后显示结果。
+        """
+        if self.is_running:
+            return
+
+        self.is_running = True
+        self.set_buttons_state(False)
+        self.log_result("开始迁移交易流水...")
+
+        def run():
+            try:
+                inserted, skipped = migrate_trades.migrate_trade_records()
+                self.root.after(0, lambda: self.log_result(f"迁移完成！新增 {inserted} 条，跳过重复 {skipped} 条"))
+                self.root.after(0, lambda: messagebox.showinfo("成功", f"迁移完成！\n新增: {inserted} 条\n跳过重复: {skipped} 条", parent=self.root))
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"迁移交易流水失败: {error_msg}")
+                self.root.after(0, lambda msg=error_msg: self.log_result(f"迁移失败: {msg}"))
+                self.root.after(0, lambda msg=error_msg: messagebox.showerror("错误", f"迁移失败: {msg}", parent=self.root))
+            finally:
+                self.root.after(0, lambda: self.set_buttons_state(True))
+                self.is_running = False
+
+        self.worker_thread = StoppableThread(target=run)
+        self.worker_thread.start()
+    
     def on_extract_data(self):
         """
-        提取数据按钮回调
+        提取股票数据按钮回调
         
         在后台线程中执行数据提取，完成后更新股票列表。
         
@@ -396,7 +431,7 @@ class StockFilterGUI:
         
         self.is_running = True
         self.set_buttons_state(False)
-        self.log_result("开始提取数据...")
+        self.log_result("开始提取股票数据...")
         
         def run():
             try:
@@ -799,7 +834,7 @@ class StockFilterGUI:
         if not self.stock_list:
             self.stock_list = read_data.get_all_stock_codes_with_names()
             if not self.stock_list:
-                messagebox.showwarning("警告", "数据库中没有股票数据，请先提取数据！", parent=self.root)
+                messagebox.showwarning("警告", "数据库中没有股票数据，请先提取股票数据！", parent=self.root)
                 return
 
         active_filters = [name for name, var in self.filter_vars.items() if var.get()]

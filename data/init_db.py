@@ -91,6 +91,21 @@ def init_database():
     # 创建索引
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_daily_code_date ON stock_daily(stock_code, date)')
     
+    # 创建交易流水表（来自外部Excel，初始化时不清空）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trade_records (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            account        TEXT NOT NULL,
+            trade_date     DATE NOT NULL,
+            business_name  TEXT,
+            stock_code     TEXT,
+            trade_price    REAL,
+            trade_quantity INTEGER,
+            amount         REAL
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_trade_records_account_date ON trade_records(account, trade_date)')
+    
     conn.commit()
     conn.close()
     
