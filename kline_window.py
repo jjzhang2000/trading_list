@@ -10,6 +10,7 @@ import os
 import multiprocessing
 from typing import List, Dict
 from utils.logger import get_logger
+from utils.window_state import load_window_state, save_window_state
 
 logger = get_logger(__name__)
 
@@ -40,6 +41,40 @@ def get_kline_html() -> str:
             font-size: 16px;
             font-weight: bold;
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 100px;
+        }
+        .vegas-toggle {
+            font-size: 14px;
+            font-weight: normal;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            user-select: none;
+            color: #d4d4d4;
+        }
+        .vegas-toggle input {
+            cursor: pointer;
+        }
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .bollinger-bandwidth {
+            font-variant-numeric: tabular-nums;
+            color: #9cdcfe;
+        }
+        .vp-slope-display {
+            font-size: 14px;
+            font-weight: normal;
+            color: #d4d4d4;
+        }
+        #vp-slope-value {
+            font-variant-numeric: tabular-nums;
+            color: #9cdcfe;
         }
         #chart-container {
             flex: 1;
@@ -64,7 +99,19 @@ def get_kline_html() -> str:
     </style>
 </head>
 <body>
-    <div id="header">K线图</div>
+    <div id="header">
+        <span id="header-title">K线图</span>
+        <div class="header-controls">
+            <label class="vegas-toggle">
+                <input type="checkbox" id="vegas-checkbox"> Vegas
+            </label>
+            <label class="vegas-toggle">
+                <input type="checkbox" id="bollinger-checkbox"> Bollinger Bands
+                <span id="bollinger-bandwidth" class="bollinger-bandwidth"></span>
+            </label>
+            <span class="vp-slope-display">VP Slope <span id="vp-slope-value"></span></span>
+        </div>
+    </div>
     <div id="chart-container">
         <div class="info-bar" id="info-bar"></div>
     </div>
@@ -75,6 +122,17 @@ def get_kline_html() -> str:
         let volumeSeries = null;
         let currentStockCode = null;
         let currentStockName = null;
+        let ema12Series = null;
+        let ema144Series = null;
+        let ema576Series = null;
+        let currentVegasData = null;
+        let bbUpperSeries = null;
+        let bbMiddleSeries = null;
+        let bbLowerSeries = null;
+        let currentBollingerData = null;
+        let currentVpSlopeData = null;
+        let uiState = { vegas: false, bollinger: false, visibleFrom: null, visibleTo: null };
+        let rangeSaveTimer = null;
         
         function initChart() {
             const container = document.getElementById('chart-container');
@@ -126,10 +184,14 @@ def get_kline_html() -> str:
             chart.subscribeCrosshairMove(param => {
                 if (!param.time || !param.point) {
                     updateInfoBar(null);
+                    updateBollingerBandwidth(null);
+                    updateVpSlopeValue(null);
                     return;
                 }
                 const data = param.seriesData.get(candleSeries);
                 const volData = param.seriesData.get(volumeSeries);
+                updateBollingerBandwidth(param.time);
+                updateVpSlopeValue(param.time);
                 if (data) {
                     updateInfoBar({
                         time: param.time,
@@ -138,6 +200,11 @@ def get_kline_html() -> str:
                         volume: volData ? volData.value : 0
                     });
                 }
+            });
+            
+            // 监听可视日期范围变化，用于持久化保存
+            chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                scheduleRangeSave();
             });
         }
         
@@ -171,6 +238,247 @@ def get_kline_html() -> str:
             return vol.toFixed(0);
         }
         
+        function calcEMA(values, length) {
+            const alpha = 2 / (length + 1);
+            const result = new Array(values.length);
+            result[0] = values[0];
+            for (let i = 1; i < values.length; i++) {
+                result[i] = alpha * values[i] + (1 - alpha) * result[i - 1];
+            }
+            return result;
+        }
+        
+        function updateVegasSeries() {
+            if (!chart) return;
+            const checked = document.getElementById('vegas-checkbox').checked;
+            
+            if (checked && currentVegasData) {
+                if (!ema12Series) {
+                    ema12Series = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(255, 165, 0, 0.5)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    ema144Series = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(255, 0, 0, 0.5)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    ema576Series = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(0, 0, 255, 0.5)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                }
+                
+                const dates = currentVegasData.dates;
+                ema12Series.setData(dates.map((date, i) => ({ time: date, value: currentVegasData.ema12[i] })));
+                ema144Series.setData(dates.map((date, i) => ({ time: date, value: currentVegasData.ema144[i] })));
+                ema576Series.setData(dates.map((date, i) => ({ time: date, value: currentVegasData.ema576[i] })));
+            } else {
+                if (ema12Series) ema12Series.setData([]);
+                if (ema144Series) ema144Series.setData([]);
+                if (ema576Series) ema576Series.setData([]);
+            }
+        }
+        
+        function calcBollinger(closes, period, mult) {
+            const middle = calcEMA(closes, period);
+            const upper = new Array(closes.length).fill(null);
+            const lower = new Array(closes.length).fill(null);
+            const bandwidth = new Array(closes.length).fill(null);
+            for (let i = period - 1; i < closes.length; i++) {
+                let sum = 0;
+                for (let j = i - period + 1; j <= i; j++) sum += closes[j];
+                const mean = sum / period;
+                let sq = 0;
+                for (let j = i - period + 1; j <= i; j++) {
+                    const d = closes[j] - mean;
+                    sq += d * d;
+                }
+                const std = Math.sqrt(sq / period);
+                upper[i] = middle[i] + mult * std;
+                lower[i] = middle[i] - mult * std;
+                bandwidth[i] = (upper[i] - lower[i]) / middle[i] * 100;
+            }
+            return { middle, upper, lower, bandwidth };
+        }
+        
+        function updateBollingerSeries() {
+            if (!chart) return;
+            const checked = document.getElementById('bollinger-checkbox').checked;
+            
+            if (checked && currentBollingerData) {
+                if (!bbUpperSeries) {
+                    bbUpperSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(0, 255, 0, 0.5)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    bbMiddleSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    bbLowerSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(0, 255, 0, 0.5)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                }
+                
+                const dates = currentBollingerData.dates;
+                const upperData = [];
+                const middleData = [];
+                const lowerData = [];
+                for (let i = 0; i < dates.length; i++) {
+                    if (currentBollingerData.upper[i] != null) {
+                        upperData.push({ time: dates[i], value: currentBollingerData.upper[i] });
+                    }
+                    if (currentBollingerData.middle[i] != null) {
+                        middleData.push({ time: dates[i], value: currentBollingerData.middle[i] });
+                    }
+                    if (currentBollingerData.lower[i] != null) {
+                        lowerData.push({ time: dates[i], value: currentBollingerData.lower[i] });
+                    }
+                }
+                bbUpperSeries.setData(upperData);
+                bbMiddleSeries.setData(middleData);
+                bbLowerSeries.setData(lowerData);
+            } else {
+                if (bbUpperSeries) bbUpperSeries.setData([]);
+                if (bbMiddleSeries) bbMiddleSeries.setData([]);
+                if (bbLowerSeries) bbLowerSeries.setData([]);
+            }
+        }
+        
+        function timeToKey(time) {
+            if (typeof time === 'string') return time;
+            if (time && time.year !== undefined) {
+                const m = String(time.month).padStart(2, '0');
+                const d = String(time.day).padStart(2, '0');
+                return `${time.year}-${m}-${d}`;
+            }
+            return String(time);
+        }
+        
+        function bandwidthColor(val) {
+            if (val < 10) return '#f76363';
+            if (val < 20) return '#e8930c';
+            return '#6ccb5f';
+        }
+        
+        function updateBollingerBandwidth(time) {
+            const el = document.getElementById('bollinger-bandwidth');
+            if (!el) return;
+            
+            if (!time || !currentBollingerData || !currentBollingerData.bandwidthMap) {
+                el.textContent = '';
+                el.style.color = '';
+                return;
+            }
+            
+            const bw = currentBollingerData.bandwidthMap[timeToKey(time)];
+            if (bw != null) {
+                el.textContent = bw.toFixed(1) + '%';
+                el.style.color = bandwidthColor(bw);
+            } else {
+                el.textContent = '';
+                el.style.color = '';
+            }
+        }
+        
+        function calcLinregSlope(values, length) {
+            const n = length;
+            const sumX = n * (n - 1) / 2;
+            const sumX2 = n * (n - 1) * (2 * n - 1) / 6;
+            const denom = n * sumX2 - sumX * sumX;
+            const result = new Array(values.length).fill(null);
+            for (let i = n - 1; i < values.length; i++) {
+                let sumY = 0;
+                let sumXY = 0;
+                for (let j = 0; j < n; j++) {
+                    const y = values[i - n + 1 + j];
+                    sumY += y;
+                    sumXY += j * y;
+                }
+                result[i] = (n * sumXY - sumX * sumY) / denom;
+            }
+            return result;
+        }
+        
+        function slopeColor(val) {
+            if (val > 0) return '#6ccb5f';
+            if (val < 0) return '#f76363';
+            return '#ffffff';
+        }
+        
+        function updateVpSlopeValue(time) {
+            const el = document.getElementById('vp-slope-value');
+            if (!el) return;
+            
+            if (!time || !currentVpSlopeData) {
+                el.textContent = '';
+                return;
+            }
+            
+            const key = timeToKey(time);
+            const longVal = currentVpSlopeData.longMap[key];
+            const shortVal = currentVpSlopeData.shortMap[key];
+            const parts = [];
+            if (longVal != null) {
+                parts.push(`<span style="color:${slopeColor(longVal)}">${longVal.toFixed(1)}%</span>`);
+            }
+            if (shortVal != null) {
+                parts.push(`<span style="color:${slopeColor(shortVal)}">${shortVal.toFixed(1)}%</span>`);
+            }
+            el.innerHTML = parts.join(' / ');
+        }
+        
+        function saveUiState() {
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.save_ui_state) {
+                window.pywebview.api.save_ui_state({
+                    vegas: document.getElementById('vegas-checkbox').checked,
+                    bollinger: document.getElementById('bollinger-checkbox').checked,
+                    visibleFrom: uiState.visibleFrom || null,
+                    visibleTo: uiState.visibleTo || null,
+                });
+            }
+        }
+        
+        function saveVisibleRange() {
+            if (!chart) return;
+            const range = chart.timeScale().getVisibleRange();
+            if (!range || range.from === undefined || range.to === undefined) return;
+            const from = timeToKey(range.from);
+            const to = timeToKey(range.to);
+            if (from && to && (uiState.visibleFrom !== from || uiState.visibleTo !== to)) {
+                uiState.visibleFrom = from;
+                uiState.visibleTo = to;
+                saveUiState();
+            }
+        }
+        
+        function scheduleRangeSave() {
+            if (rangeSaveTimer) clearTimeout(rangeSaveTimer);
+            rangeSaveTimer = setTimeout(() => {
+                rangeSaveTimer = null;
+                saveVisibleRange();
+            }, 500);
+        }
+        
         function waitForApi() {
             return new Promise((resolve) => {
                 if (window.pywebview && window.pywebview.api) {
@@ -191,9 +499,10 @@ def get_kline_html() -> str:
         async function showStock(stockCode, stockName) {
             try {
                 await waitForApi();
+                await uiStateReady;
                 
                 // 更新标题
-                document.getElementById('header').textContent = `${stockCode} / ${stockName}`;
+                document.getElementById('header-title').textContent = `${stockCode} / ${stockName}`;
                 
                 currentStockCode = stockCode;
                 currentStockName = stockName;
@@ -218,22 +527,102 @@ def get_kline_html() -> str:
                     candleSeries.setData(candles);
                     volumeSeries.setData(volumes);
                     
-                    // 默认显示最近120个交易日，之后可随滚轮缩放调整日期区间
-                    const totalBars = candles.length;
-                    const visibleBars = 120;
-                    if (totalBars > visibleBars) {
-                        chart.timeScale().setVisibleLogicalRange({
-                            from: totalBars - visibleBars,
-                            to: totalBars + 0.5,
-                        });
-                    } else {
-                        chart.timeScale().fitContent();
+                    // 计算Vegas通道EMA数据（EMA12/144/576）
+                    const closes = result.map(d => d.close);
+                    currentVegasData = {
+                        ema12: calcEMA(closes, 12),
+                        ema144: calcEMA(closes, 144),
+                        ema576: calcEMA(closes, 576),
+                        dates: result.map(d => d.date),
+                    };
+                    updateVegasSeries();
+                    
+                    // 计算布林带数据（中轨EMA20，上下轨±2倍标准差）
+                    currentBollingerData = calcBollinger(closes, 20, 2.0);
+                    currentBollingerData.dates = result.map(d => d.date);
+                    currentBollingerData.bandwidthMap = {};
+                    for (let i = 0; i < currentBollingerData.dates.length; i++) {
+                        currentBollingerData.bandwidthMap[currentBollingerData.dates[i]] = currentBollingerData.bandwidth[i];
+                    }
+                    updateBollingerSeries();
+                    updateBollingerBandwidth(null);
+                    
+                    // 计算Volume Profile Slope数据（slope_long周期100，slope_short周期10，均转为相对收盘价的百分比）
+                    const dates = result.map(d => d.date);
+                    const slopeLong = calcLinregSlope(closes, 100);
+                    const slopeShort = calcLinregSlope(closes, 10);
+                    currentVpSlopeData = { longMap: {}, shortMap: {} };
+                    for (let i = 0; i < dates.length; i++) {
+                        const c = closes[i];
+                        if (c && slopeLong[i] != null) {
+                            currentVpSlopeData.longMap[dates[i]] = slopeLong[i] / c * 100;
+                        }
+                        if (c && slopeShort[i] != null) {
+                            currentVpSlopeData.shortMap[dates[i]] = slopeShort[i] / c * 100;
+                        }
+                    }
+                    updateVpSlopeValue(null);
+                    
+                    // 恢复上次显示的日期范围，否则默认显示最近120个交易日
+                    let rangeRestored = false;
+                    if (uiState.visibleFrom && uiState.visibleTo) {
+                        try {
+                            chart.timeScale().setVisibleRange({
+                                from: uiState.visibleFrom,
+                                to: uiState.visibleTo,
+                            });
+                            rangeRestored = true;
+                        } catch (e) {
+                            console.error('恢复日期范围失败:', e);
+                        }
+                    }
+                    if (!rangeRestored) {
+                        const totalBars = candles.length;
+                        const visibleBars = 120;
+                        if (totalBars > visibleBars) {
+                            chart.timeScale().setVisibleLogicalRange({
+                                from: totalBars - visibleBars,
+                                to: totalBars + 0.5,
+                            });
+                        } else {
+                            chart.timeScale().fitContent();
+                        }
                     }
                 }
             } catch (e) {
                 console.error('显示股票失败:', e);
             }
         }
+        
+        const uiStateReady = (async () => {
+            try {
+                await waitForApi();
+                const state = await window.pywebview.api.get_ui_state();
+                if (state) {
+                    uiState.vegas = !!state.vegas;
+                    uiState.bollinger = !!state.bollinger;
+                    uiState.visibleFrom = state.visibleFrom || null;
+                    uiState.visibleTo = state.visibleTo || null;
+                    if (state.vegas) document.getElementById('vegas-checkbox').checked = true;
+                    if (state.bollinger) document.getElementById('bollinger-checkbox').checked = true;
+                }
+            } catch (e) {
+                console.error('加载UI状态失败:', e);
+            }
+            updateVegasSeries();
+            updateBollingerSeries();
+        })();
+        
+        // Vegas复选框切换事件
+        document.getElementById('vegas-checkbox').addEventListener('change', () => {
+            updateVegasSeries();
+            saveUiState();
+        });
+        // Bollinger Bands复选框切换事件
+        document.getElementById('bollinger-checkbox').addEventListener('change', () => {
+            updateBollingerSeries();
+            saveUiState();
+        });
     </script>
 </body>
 </html>'''
@@ -241,6 +630,35 @@ def get_kline_html() -> str:
 
 class KLineAPI:
     """K线图数据API（供JavaScript调用）"""
+    
+    def get_ui_state(self) -> Dict:
+        """
+        获取K线窗口UI状态（复选框选中状态与可视日期范围）
+        
+        Returns:
+            包含 vegas、bollinger 复选框状态及 visibleFrom、visibleTo 的字典
+        """
+        state = load_window_state('kline_ui') or {}
+        return {
+            'vegas': bool(state.get('vegas', False)),
+            'bollinger': bool(state.get('bollinger', False)),
+            'visibleFrom': state.get('visibleFrom'),
+            'visibleTo': state.get('visibleTo'),
+        }
+    
+    def save_ui_state(self, state: Dict) -> None:
+        """
+        保存K线窗口UI状态
+        
+        Args:
+            state: 包含 vegas、bollinger、visibleFrom、visibleTo 的字典
+        """
+        save_window_state('kline_ui', {
+            'vegas': bool(state.get('vegas', False)),
+            'bollinger': bool(state.get('bollinger', False)),
+            'visibleFrom': state.get('visibleFrom'),
+            'visibleTo': state.get('visibleTo'),
+        })
     
     def get_kline_data(self, stock_code: str, days: int = 120) -> List[Dict]:
         """
