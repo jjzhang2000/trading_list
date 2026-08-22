@@ -10,6 +10,8 @@ import multiprocessing
 import time
 import threading
 
+from utils.window_state import load_window_state, save_window_state
+
 
 def run_kline_window(cmd_queue):
     """
@@ -40,12 +42,17 @@ def run_kline_window(cmd_queue):
         print(f"[DEBUG] 创建webview窗口...")
         sys.stdout.flush()
         
+        # 恢复上次保存的窗口位置和尺寸
+        saved = load_window_state('kline') or {}
+
         # 创建窗口
         window = webview.create_window(
             title='K线图',
             html=html,
-            width=1000,
-            height=700,
+            width=saved.get('width', 1000),
+            height=saved.get('height', 700),
+            x=saved.get('x'),
+            y=saved.get('y'),
             js_api=api,
             resizable=True
         )
@@ -66,6 +73,22 @@ def run_kline_window(cmd_queue):
             time.sleep(0.3)
         
         window.events.loaded += on_loaded
+        
+        # 关闭前保存窗口位置和尺寸
+        def on_closing():
+            try:
+                save_window_state('kline', {
+                    'x': window.x,
+                    'y': window.y,
+                    'width': window.width,
+                    'height': window.height,
+                })
+            except Exception as e:
+                print(f"[ERROR] 保存窗口状态失败: {e}")
+                sys.stdout.flush()
+            return True
+        
+        window.events.closing += on_closing
         
         print(f"[DEBUG] 启动命令监听线程...")
         sys.stdout.flush()

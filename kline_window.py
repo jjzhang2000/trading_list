@@ -193,7 +193,7 @@ def get_kline_html() -> str:
                 await waitForApi();
                 
                 // 更新标题
-                document.getElementById('header').textContent = `${stockName} (${stockCode})`;
+                document.getElementById('header').textContent = `${stockCode} / ${stockName}`;
                 
                 currentStockCode = stockCode;
                 currentStockName = stockName;
@@ -203,8 +203,8 @@ def get_kline_html() -> str:
                     initChart();
                 }
                 
-                // 加载数据
-                const result = await window.pywebview.api.get_kline_data(stockCode, 120);
+                // 加载数据（加载完整历史，缩放时由图表自行调整可见区间）
+                const result = await window.pywebview.api.get_kline_data(stockCode, 2000);
                 if (result && result.length > 0) {
                     const candles = result.map(d => ({
                         time: d.date, open: d.open,
@@ -217,7 +217,18 @@ def get_kline_html() -> str:
                     
                     candleSeries.setData(candles);
                     volumeSeries.setData(volumes);
-                    chart.timeScale().fitContent();
+                    
+                    // 默认显示最近120个交易日，之后可随滚轮缩放调整日期区间
+                    const totalBars = candles.length;
+                    const visibleBars = 120;
+                    if (totalBars > visibleBars) {
+                        chart.timeScale().setVisibleLogicalRange({
+                            from: totalBars - visibleBars,
+                            to: totalBars + 0.5,
+                        });
+                    } else {
+                        chart.timeScale().fitContent();
+                    }
                 }
             } catch (e) {
                 console.error('显示股票失败:', e);

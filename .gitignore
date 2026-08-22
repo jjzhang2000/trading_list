@@ -23,6 +23,9 @@ logs/
 data/*_results.json
 data/*_backtest_results.csv
 
+# 窗口状态（本地运行状态，不提交）
+window_state.json
+
 # 临时文件
 *.tmp
 *.bak

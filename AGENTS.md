@@ -25,7 +25,8 @@ trading_list/
 │   ├── read_data.py      # 数据库读取
 │   └── batch_fetch.py    # 批量数据更新
 └── utils/
-    └── logger.py         # 日志模块
+    ├── logger.py         # 日志模块
+    └── window_state.py   # 窗口位置/尺寸持久化
 ```
 
 ## 运行命令

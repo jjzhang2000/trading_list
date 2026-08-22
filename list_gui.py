@@ -55,6 +55,7 @@ from data import init_db, extract_data, read_data
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 from data.read_data import save_indicator, get_indicator
 from utils.logger import get_logger
+from utils.window_state import load_window_state, save_window_state
 from kline_window import KLineWindow
 
 logger = get_logger(__name__)
@@ -172,10 +173,15 @@ class StockFilterGUI:
         self.root = root
         self.root.title("股票筛选系统")
 
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = int(self.root.winfo_screenheight() * 0.94)  # 减去任务栏等占用的高度
-        width = screen_width // 3
-        self.root.geometry(f"{width}x{screen_height}+{screen_width - width}+0")
+        # 恢复上次保存的窗口位置和尺寸，否则使用默认布局
+        saved = load_window_state('gui')
+        if saved and saved.get('geometry'):
+            self.root.geometry(saved['geometry'])
+        else:
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = int(self.root.winfo_screenheight() * 0.94)  # 减去任务栏等占用的高度
+            width = screen_width // 3
+            self.root.geometry(f"{width}x{screen_height}+{screen_width - width}+0")
         
         self.stock_list: List[tuple] = []
         self.stock_filtered: List[dict] = []   # 股票筛选结果（60开头，扣除持仓）
@@ -187,7 +193,14 @@ class StockFilterGUI:
         
         self.setup_ui()
         
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         atexit.register(self.cleanup)
+    
+    def _on_close(self):
+        """关闭窗口前保存位置和尺寸"""
+        save_window_state('gui', {'geometry': self.root.winfo_geometry()})
+        self.cleanup()
+        self.root.destroy()
     
     def setup_ui(self):
         """
