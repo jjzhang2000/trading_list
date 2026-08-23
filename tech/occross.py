@@ -115,11 +115,6 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
         return None
     
     result = occ_df.tail(days)
-    last_row = result.iloc[-1]
-    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
-    logger.info(f"OCC: {stock_code} occ_open={last_row['occ_open']:.2f} "
-                f"occ_close={last_row['occ_close']:.2f} 趋势={trend}")
-    
     return result
 
 

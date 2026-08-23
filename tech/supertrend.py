@@ -113,9 +113,6 @@ def _get_st_signal(stock_code: str, date: str,
     st_pct = (close - st_line) / st_line * 100
     save_indicator(stock_code, date, ST_COLUMN, round(st_pct))
 
-    trend = "多头" if st_pct > 0 else "空头"
-    logger.info(f"SuperTrend: {stock_code} st_line={st_line:.2f} st_above_pct={st_pct:.2f}% 趋势={trend} (已缓存)")
-
     return st_pct
 
 
@@ -152,8 +149,6 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50,
     
     result = st_df.tail(days)
     last_row = result.iloc[-1]
-    trend = "多头" if last_row['trend_direction'] == 1 else "空头"
-    logger.info(f"SuperTrend: {stock_code} supertrend={last_row['supertrend']:.2f} 趋势={trend}")
 
     # 将 st_above_pct 缓存到数据库
     st_line = last_row['supertrend']

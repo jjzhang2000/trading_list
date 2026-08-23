@@ -111,12 +111,6 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[
         return None
 
     result = vegas_df.tail(days)
-    last_row = result.iloc[-1]
-    trend = "多头排列" if last_row['trend_direction'] == 1 else ("空头排列" if last_row['trend_direction'] == -1 else "震荡")
-    logger.info(f"Vegas: {stock_code} 收盘价={last_row.get('close', 0):.2f} "
-                f"EMA12={last_row['ema12']:.2f} EMA144={last_row['ema144']:.2f} "
-                f"EMA576={last_row['ema576']:.2f} 趋势={trend}")
-
     return result
 
 
@@ -135,8 +129,6 @@ def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: i
     results = []
 
     logger.info(f"开始计算 {len(stock_codes)} 只股票的Vegas通道（要求连续多头>= {min_bullish_days} 天）...")
-    logger.info(f"{'代码':<8} {'收盘价':>10} {'EMA12':>10} {'EMA144':>10} {'EMA576':>10} {'趋势':<6} {'连续多头':>8}")
-    logger.info("-" * 75)
 
     for i, code in enumerate(stock_codes):
         if (i + 1) % 100 == 0:
@@ -146,7 +138,6 @@ def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: i
 
         if vegas_df is not None and not vegas_df.empty:
             last_row = vegas_df.iloc[-1]
-            trend = "多头" if last_row['trend_direction'] == 1 else ("空头" if last_row['trend_direction'] == -1 else "震荡")
 
             bullish_streak = 0
             for j in range(len(vegas_df) - 1, -1, -1):
@@ -154,9 +145,6 @@ def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: i
                     bullish_streak += 1
                 else:
                     break
-
-            logger.info(f"{code:<8} {last_row.get('close', 0):>10.2f} {last_row['ema12']:>10.2f} "
-                        f"{last_row['ema144']:>10.2f} {last_row['ema576']:>10.2f} {trend:<6} {bullish_streak:>8}")
 
             # 缓存 vegas_above_pct 到数据库
             close_price = last_row.get('close', 0)

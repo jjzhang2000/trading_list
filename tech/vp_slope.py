@@ -88,10 +88,6 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
         return None
     
     result = slope_df.tail(days)
-    last_row = result.iloc[-1]
-    logger.info(f"VP Slope: {stock_code} 长期斜率={last_row['slope_long']:.4f} "
-                f"短期斜率={last_row['slope_short']:.4f}")
-    
     return result
 
 

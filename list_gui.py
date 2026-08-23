@@ -183,6 +183,7 @@ class StockFilterGUI:
         self.etf_filtered: List[dict] = []     # ETF筛选结果（5开头，扣除持仓）
         self.holding_list: List[dict] = []     # 持仓股票计算结果（不筛选，直接计算指标）
         self.history_list: List[dict] = []     # 已平仓股票计算结果（扣除持仓）
+        self.query_list: List[dict] = []       # 查询tab结果（手动查询的股票）
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         self.kline_window: Optional[KLineWindow] = None  # K线图窗口
@@ -363,6 +364,11 @@ class StockFilterGUI:
         self.notebook.add(history_tab, text='历史')
         self.history_tree = self._make_tree(history_tab)
         self.history_tree.pack(fill=tk.BOTH, expand=True)
+
+        self.query_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.query_tab, text='查询')
+        self.query_tree = self._make_tree(self.query_tab)
+        self.query_tree.pack(fill=tk.BOTH, expand=True)
     
     def log_result(self, message: str):
         """
@@ -713,11 +719,12 @@ class StockFilterGUI:
         self.kline_window.show(stock_code, stock_name)
 
     def update_result_list(self):
-        """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab + 历史tab）"""
+        """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab + 历史tab + 查询tab）"""
         self._populate_tree(self.stock_tree, self.stock_filtered)
         self._populate_tree(self.etf_tree, self.etf_filtered)
         self._populate_tree(self.holding_tree, self.holding_list)
         self._populate_tree(self.history_tree, self.history_list)
+        self._populate_tree(self.query_tree, self.query_list)
     
     def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
         """检查Vegas是否通过筛选（多头排列且连续多头>=10天）"""
@@ -742,14 +749,32 @@ class StockFilterGUI:
             return float(vp_df.iloc[-1]['slope_long']) > 0
         return False
 
+    def _get_stock_name(self, stock_code: str) -> Optional[str]:
+        """根据股票代码查找名称，找不到返回None"""
+        for code, name in self.stock_list:
+            if code == stock_code:
+                return name or stock_code
+        try:
+            for code, name in read_data.get_all_stock_codes_with_names():
+                if code == stock_code:
+                    return name or stock_code
+        except Exception as e:
+            logger.warning(f"查询股票名称失败: {e}")
+        return None
+
     def on_query(self):
-        """查询按钮回调：弹出当前日期下该股票的5个指标值（缓存未命中则计算）"""
+        """查询按钮回调：计算当前日期下该股票的指标值并加入查询tab"""
         stock_code = self.query_entry.get().strip()
         if not stock_code:
             messagebox.showwarning("警告", "请输入股票代码！", parent=self.root)
             return
 
         date = datetime.now().strftime('%Y-%m-%d')
+
+        name = self._get_stock_name(stock_code)
+        if name is None:
+            messagebox.showwarning("警告", f"未找到股票 {stock_code}！", parent=self.root)
+            return
 
         def get_or_compute(col, compute_fn):
             v = get_indicator(stock_code, date, col)
@@ -763,28 +788,26 @@ class StockFilterGUI:
         occ_val = get_or_compute('openclosecross', lambda: _compute_occ(stock_code, date))
         vp_val = get_or_compute('volumeprofile', lambda: _compute_vp(stock_code, date))
 
-        st_pass = st_val > 0
-        vegas_pass = self._check_vegas_pass(stock_code, date)
-        bb_pass = bb_val > 10
-        occ_pass = occ_val > 0
-        vp_pass = self._check_vp_pass(stock_code, date)
-
-        green = '\u2714'   # ✔
-        red = '\u2718'     # ✘
-
-        def mark(passed):
-            return green if passed else red
-
         total = st_val + vegas_val + bb_val + occ_val + vp_val
-        msg = (
-            f"Supertrend: {st_val}  {mark(st_pass)}\n"
-            f"Vegas: {vegas_val}  {mark(vegas_pass)}\n"
-            f"BollingerBands: {bb_val}  {mark(bb_pass)}\n"
-            f"O/C Cross: {occ_val}  {mark(occ_pass)}\n"
-            f"VolumeProfile: {vp_val}  {mark(vp_pass)}\n"
-            f"总分: {total}"
-        )
-        messagebox.showinfo(f"查询结果 - {stock_code}", msg, parent=self.root)
+
+        item = {
+            'code': stock_code,
+            'name': name,
+            'supertrend': st_val,
+            'vegas': vegas_val,
+            'bollingerbands': bb_val,
+            'occross': occ_val,
+            'volumeprofile': vp_val,
+            'total': total,
+        }
+
+        # 已查询过相同代码则更新，否则追加
+        self.query_list = [it for it in self.query_list if it.get('code') != stock_code]
+        self.query_list.append(item)
+
+        self._populate_tree(self.query_tree, self.query_list)
+        self.notebook.select(self.query_tab)
+        self.log_result(f"查询 {stock_code} {item['name']}：总分 {total}")
 
     def _run_filter_pipeline(self, codes: list, active_filters: list, date: str, label: str) -> list:
         """

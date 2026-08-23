@@ -98,12 +98,6 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
         return None
     
     result = bb_df.tail(days)
-    last_row = result.iloc[-1]
-    logger.info(f"布林带: {stock_code} 收盘价={last_row['close']:.2f} "
-                f"中轨={last_row['middle_band']:.2f} "
-                f"上轨={last_row['upper_band']:.2f} 下轨={last_row['lower_band']:.2f} "
-                f"开口率={last_row['bandwidth']:.2f}%")
-    
     return result
 
 
