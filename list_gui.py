@@ -207,11 +207,13 @@ class StockFilterGUI:
         """
         设置UI界面
         
-        将界面分为两个部分：
+        将界面分为三个部分：
         - 上部：数据操作区
+        - 中部：交易区
         - 下部：筛选器和结果区
         """
         self.setup_top_frame()
+        self.setup_trade_frame()
         self.setup_middle_frame()
     
     def cleanup(self):
@@ -234,7 +236,7 @@ class StockFilterGUI:
         设置上部数据操作区
 
         包含：
-        - 左侧垂直排列：提取股票数据按钮、初始化数据库按钮、迁移交易流水按钮
+        - 左侧垂直排列：提取股票数据按钮、初始化数据库按钮
         - 右侧：运行日志文本框
         """
         top_frame = ttk.LabelFrame(self.root, text="数据操作", padding=10)
@@ -249,14 +251,51 @@ class StockFilterGUI:
         self.btn_init = ttk.Button(btn_frame, text="初始化数据库", width=15, command=self.on_init_db)
         self.btn_init.pack(pady=2)
 
-        self.btn_migrate = ttk.Button(btn_frame, text="迁移交易流水", width=15, command=self.on_migrate_trades)
-        self.btn_migrate.pack(pady=2)
-
         result_frame = ttk.Frame(top_frame)
         result_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
 
         self.result_text = scrolledtext.ScrolledText(result_frame, height=4, state=tk.DISABLED)
         self.result_text.pack(fill=tk.BOTH, expand=True)
+    
+    def setup_trade_frame(self):
+        """
+        设置中部交易区
+
+        包含：
+        - 左侧：迁移交易流水按钮、交易盈亏统计按钮
+        - 右侧：交易盈亏统计结果表格
+        """
+        trade_frame = ttk.LabelFrame(self.root, text="交易", padding=10)
+        trade_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        btn_frame = ttk.Frame(trade_frame)
+        btn_frame.pack(side=tk.LEFT, fill=tk.Y)
+
+        self.btn_migrate = ttk.Button(btn_frame, text="迁移交易流水", width=15, command=self.on_migrate_trades)
+        self.btn_migrate.pack(pady=2)
+
+        self.btn_trade_stats = ttk.Button(btn_frame, text="交易盈亏统计", width=15, command=self.on_trade_stats)
+        self.btn_trade_stats.pack(pady=2)
+
+        # 右侧：交易盈亏统计结果表格（Label网格，支持单元格级着色）
+        stats_frame = ttk.Frame(trade_frame)
+        stats_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+
+        # 列定义：(标题, 宽度, 对齐方式)
+        self.trade_stats_columns = [
+            ('账户', 8, tk.CENTER),
+            ('银行->证券', 12, tk.E),
+            ('证券->银行', 12, tk.E),
+            ('净投入', 12, tk.E),
+            ('已平仓盈亏', 12, tk.E),
+        ]
+        for col, (text, width, anchor) in enumerate(self.trade_stats_columns):
+            tk.Label(stats_frame, text=text, width=width, anchor=anchor).grid(
+                row=0, column=col, padx=1, pady=1)
+
+        # 数据行容器，刷新时清空重建
+        self.trade_stats_rows = ttk.Frame(stats_frame)
+        self.trade_stats_rows.grid(row=1, column=0, columnspan=len(self.trade_stats_columns), sticky='ew')
     
     def setup_middle_frame(self):
         """
@@ -347,6 +386,7 @@ class StockFilterGUI:
         self.btn_init.config(state=state)
         self.btn_extract.config(state=state)
         self.btn_migrate.config(state=state)
+        self.btn_trade_stats.config(state=state)
         self.btn_filter.config(state=state)
     
     def on_init_db(self):
@@ -411,6 +451,45 @@ class StockFilterGUI:
 
         self.worker_thread = StoppableThread(target=run)
         self.worker_thread.start()
+    
+    def on_trade_stats(self):
+        """
+        交易盈亏统计按钮回调
+
+        从数据库 trade_records 表统计各账户的银行转入、银行转出、净投入
+        以及已完成交易的盈亏之和，显示在交易组右侧表格中。
+        """
+        try:
+            cash_stats = migrate_trades.get_bank_cash_stats()
+            pnl_stats = migrate_trades.get_trade_pnl_stats()
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"交易盈亏统计失败: {error_msg}")
+            messagebox.showerror("错误", f"交易盈亏统计失败: {error_msg}", parent=self.root)
+            return
+
+        # 清空旧数据行
+        for widget in self.trade_stats_rows.winfo_children():
+            widget.destroy()
+
+        for row_idx, row in enumerate(cash_stats):
+            account = row['account']
+            pnl = pnl_stats.get(account, 0.0)
+            cells = [
+                account,
+                f"{row['transfer_in']:,.2f}",
+                f"{row['transfer_out']:,.2f}",
+                f"{row['net_invest']:,.2f}",
+                f"{pnl:,.2f}",
+            ]
+            for col_idx, value in enumerate(cells):
+                fg = 'red' if (col_idx == len(cells) - 1 and pnl < 0) else None
+                tk.Label(self.trade_stats_rows, text=value,
+                         width=self.trade_stats_columns[col_idx][1],
+                         anchor=self.trade_stats_columns[col_idx][2],
+                         fg=fg).grid(row=row_idx, column=col_idx, padx=1, pady=1)
+
+        self.log_result(f"交易盈亏统计完成，共 {len(cash_stats)} 个账户")
     
     def on_extract_data(self):
         """

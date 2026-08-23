@@ -209,6 +209,119 @@ def migrate_trade_records(excel_path: str = EXCEL_PATH, db_path: str = DB_PATH) 
     return inserted_total, skipped_total
 
 
+def get_bank_cash_stats(db_path: str = DB_PATH) -> list:
+    """
+    统计各账户银行现金流水：账户、银行转入、银行转出、净投入
+
+    转入业务（金额为正）：银行转证券、银行转存
+    转出业务（金额为负，返回时取绝对值）：证券转银行、银行转取
+
+    Args:
+        db_path: 数据库路径
+
+    Returns:
+        [{'account': 账户, 'transfer_in': 银行转入, 'transfer_out': 银行转出, 'net_invest': 净投入}, ...]
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT account,
+                   SUM(CASE WHEN business_name IN ('银行转证券', '银行转存') THEN amount ELSE 0 END) AS transfer_in,
+                   SUM(CASE WHEN business_name IN ('证券转银行', '银行转取') THEN -amount ELSE 0 END) AS transfer_out
+            FROM trade_records
+            WHERE business_name IN ('银行转证券', '证券转银行', '银行转存', '银行转取')
+            GROUP BY account
+            ORDER BY account
+        ''')
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    result = []
+    for account, transfer_in, transfer_out in rows:
+        transfer_in = transfer_in or 0.0
+        transfer_out = transfer_out or 0.0
+        result.append({
+            'account': account,
+            'transfer_in': round(transfer_in, 2),
+            'transfer_out': round(transfer_out, 2),
+            'net_invest': round(transfer_in - transfer_out, 2),
+        })
+    return result
+
+
+def get_trade_pnl_stats(db_path: str = DB_PATH) -> dict:
+    """
+    统计各账户已完成交易的盈亏之和（含资金类收支）
+
+    采用移动平均成本法，按账户、股票代码分组，按交易日期顺序处理：
+    - 证券买入：增加持仓，累计成本（发生金额为负，转为正成本）
+    - 证券卖出：按平均成本计算已实现盈亏，并减少持仓
+    - 红股入账：增加股数，成本为0
+    - 资金类业务（股息入账、红利入账、利息归本及相关税费）：直接累加发生金额
+
+    Args:
+        db_path: 数据库路径
+
+    Returns:
+        {账户: 盈亏之和}，仅包含发生过买卖或资金类收支的账户
+
+    已知待办（TODO）：
+        交易流水中的「股份转出」「配股权证」等拆股/转股类业务，会改变持仓股数
+        但发生金额为 0。当前实现未处理这些股数变化，它们会落入下方 else 分支
+        直接累加金额（金额为 0，因此不影响盈亏数值）。等未来出现这类业务实际
+        影响盈亏（例如拆股后卖出）时，再补充相应的股数增减逻辑。
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT account, stock_code, trade_date, business_name, trade_quantity, amount
+            FROM trade_records
+            WHERE business_name NOT IN ('银行转证券', '证券转银行', '银行转存', '银行转取')
+            ORDER BY account, stock_code, trade_date, id
+        ''')
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    pnl_by_account = {}
+    positions = {}  # {account: {stock_code: [持仓数量, 持仓成本]}}
+
+    for account, stock_code, _trade_date, business_name, qty, amount in rows:
+        qty = qty or 0
+        amount = amount or 0.0
+        pos = positions.setdefault(account, {}).setdefault(stock_code, [0, 0.0])
+
+        if business_name == '红股入账':
+            # 送股：增加股数，成本为0
+            pos[0] += qty
+        elif business_name.startswith('证券买入'):
+            # 买入：增加持仓，累计成本（发生金额为负，取反为正成本）
+            pos[0] += qty
+            pos[1] += -amount
+        elif business_name.startswith('证券卖出'):
+            # 卖出：按平均成本计算已实现盈亏
+            sell_qty = -qty
+            sell_income = amount
+            avg_cost = pos[1] / pos[0] if pos[0] > 0 else 0.0
+            realized = sell_income - avg_cost * sell_qty
+            pnl_by_account[account] = pnl_by_account.get(account, 0.0) + realized
+            pos[0] -= sell_qty
+            pos[1] -= avg_cost * sell_qty
+            if pos[0] <= 0:
+                pos[0] = 0
+                pos[1] = 0.0
+        else:
+            # 资金类业务：股息、红利、利息及相关税费，直接累加发生金额
+            # 注意：此处也包含「股份转出」「配股权证」等拆股/转股类业务，
+            # 它们 amount 为 0 且暂未处理股数变化（见函数 docstring 的 TODO）。
+            pnl_by_account[account] = pnl_by_account.get(account, 0.0) + amount
+
+    return pnl_by_account
+
+
 def main():
     """命令行测试"""
     inserted, skipped = migrate_trade_records()
