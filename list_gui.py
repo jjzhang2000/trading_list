@@ -50,7 +50,6 @@ import threading
 from datetime import datetime
 from typing import List, Optional
 import atexit
-import os
 
 from data import init_db, extract_data, read_data, migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
@@ -63,13 +62,8 @@ logger = get_logger(__name__)
 
 
 def get_holding_codes() -> List[str]:
-    """从shareholding.txt读取持仓股票代码"""
-    holding_file = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
-    if not os.path.exists(holding_file):
-        logger.warning(f"持仓文件不存在: {holding_file}")
-        return []
-    with open(holding_file, 'r', encoding='utf-8') as f:
-        codes = [line.strip() for line in f if line.strip()]
+    """从数据库交易流水读取持仓股票代码（净持仓数量>0）"""
+    codes = migrate_trades.get_holding_position_codes()
     logger.info(f"读取到 {len(codes)} 只持仓股票")
     return codes
 
@@ -188,6 +182,7 @@ class StockFilterGUI:
         self.stock_filtered: List[dict] = []   # 股票筛选结果（60开头，扣除持仓）
         self.etf_filtered: List[dict] = []     # ETF筛选结果（5开头，扣除持仓）
         self.holding_list: List[dict] = []     # 持仓股票计算结果（不筛选，直接计算指标）
+        self.history_list: List[dict] = []     # 已平仓股票计算结果（扣除持仓）
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         self.kline_window: Optional[KLineWindow] = None  # K线图窗口
@@ -283,11 +278,13 @@ class StockFilterGUI:
 
         # 列定义：(标题, 宽度, 对齐方式)
         self.trade_stats_columns = [
-            ('账户', 8, tk.CENTER),
-            ('银行->证券', 12, tk.E),
-            ('证券->银行', 12, tk.E),
-            ('净投入', 12, tk.E),
-            ('已平仓盈亏', 12, tk.E),
+            ('账户', 7, tk.CENTER),
+            ('银行->证券', 10, tk.E),
+            ('证券->银行', 10, tk.E),
+            ('净投入', 10, tk.E),
+            ('已平仓盈亏', 10, tk.E),
+            ('持仓估值', 10, tk.E),
+            ('持仓浮盈', 10, tk.E),
         ]
         for col, (text, width, anchor) in enumerate(self.trade_stats_columns):
             tk.Label(stats_frame, text=text, width=width, anchor=anchor).grid(
@@ -304,7 +301,7 @@ class StockFilterGUI:
         包含：
         - 第一行：5个筛选器复选框
         - 第二行：开始筛选按钮
-        - 第三行：Notebook三个tab（股票、ETF、持仓）
+        - 第三行：Notebook四个tab（股票、ETF、持仓、历史）
         """
         middle_frame = ttk.LabelFrame(self.root, text="筛选器", padding=10)
         middle_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -340,7 +337,7 @@ class StockFilterGUI:
         self.query_entry = ttk.Entry(btn_row, width=10)
         self.query_entry.pack(side=tk.RIGHT, padx=5)
 
-        # Notebook：股票 / ETF / 持仓 三个tab
+        # Notebook：股票 / ETF / 持仓 / 历史 四个tab
         style = ttk.Style()
         style.configure('TNotebook.Tab', padding=(18, 4))
 
@@ -361,6 +358,11 @@ class StockFilterGUI:
         self.notebook.add(holding_tab, text='持仓')
         self.holding_tree = self._make_tree(holding_tab)
         self.holding_tree.pack(fill=tk.BOTH, expand=True)
+
+        history_tab = ttk.Frame(self.notebook)
+        self.notebook.add(history_tab, text='历史')
+        self.history_tree = self._make_tree(history_tab)
+        self.history_tree.pack(fill=tk.BOTH, expand=True)
     
     def log_result(self, message: str):
         """
@@ -456,12 +458,13 @@ class StockFilterGUI:
         """
         交易盈亏统计按钮回调
 
-        从数据库 trade_records 表统计各账户的银行转入、银行转出、净投入
-        以及已完成交易的盈亏之和，显示在交易组右侧表格中。
+        从数据库 trade_records 表统计各账户的银行转入、银行转出、净投入、
+        已完成交易的盈亏之和，以及当前持仓的估值与浮盈，显示在交易组右侧表格中。
         """
         try:
             cash_stats = migrate_trades.get_bank_cash_stats()
             pnl_stats = migrate_trades.get_trade_pnl_stats()
+            valuation_stats = migrate_trades.get_holding_valuation_stats()
         except Exception as e:
             error_msg = str(e)
             logger.error(f"交易盈亏统计失败: {error_msg}")
@@ -475,15 +478,22 @@ class StockFilterGUI:
         for row_idx, row in enumerate(cash_stats):
             account = row['account']
             pnl = pnl_stats.get(account, 0.0)
+            val = valuation_stats.get(account, {})
+            market_value = val.get('market_value', 0.0)
+            floating_pnl = val.get('floating_pnl', 0.0)
             cells = [
                 account,
                 f"{row['transfer_in']:,.2f}",
                 f"{row['transfer_out']:,.2f}",
                 f"{row['net_invest']:,.2f}",
                 f"{pnl:,.2f}",
+                f"{market_value:,.2f}",
+                f"{floating_pnl:,.2f}",
             ]
             for col_idx, value in enumerate(cells):
-                fg = 'red' if (col_idx == len(cells) - 1 and pnl < 0) else None
+                # 已平仓盈亏（第4列）和持仓浮盈（第6列）为负时标红
+                negative = (col_idx == 4 and pnl < 0) or (col_idx == 6 and floating_pnl < 0)
+                fg = 'red' if negative else None
                 tk.Label(self.trade_stats_rows, text=value,
                          width=self.trade_stats_columns[col_idx][1],
                          anchor=self.trade_stats_columns[col_idx][2],
@@ -703,10 +713,11 @@ class StockFilterGUI:
         self.kline_window.show(stock_code, stock_name)
 
     def update_result_list(self):
-        """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab）"""
+        """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab + 历史tab）"""
         self._populate_tree(self.stock_tree, self.stock_filtered)
         self._populate_tree(self.etf_tree, self.etf_filtered)
         self._populate_tree(self.holding_tree, self.holding_list)
+        self._populate_tree(self.history_tree, self.history_list)
     
     def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
         """检查Vegas是否通过筛选（多头排列且连续多头>=10天）"""
@@ -864,12 +875,12 @@ class StockFilterGUI:
         else:
             return [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in sorted(codes)]
 
-    def _compute_holding_indicators(self, holding_codes: list, date: str):
-        """为持仓股票补算所有指标（未经过筛选循环，DB中无缓存）"""
-        if not holding_codes:
+    def _compute_indicators(self, codes: list, date: str):
+        """为指定代码列表补算所有指标（未经过筛选循环，DB中无缓存）"""
+        if not codes:
             return
-        self.root.after(0, lambda n=len(holding_codes): self.log_result(f"补算 {n} 只持仓股票指标..."))
-        for hcode in holding_codes:
+        self.root.after(0, lambda n=len(codes): self.log_result(f"补算 {n} 只股票指标..."))
+        for hcode in codes:
             supertrend._get_st_signal(hcode, date)
             vegas_df = vegas.get_stock_vegas(hcode, date, days=50)
             if vegas_df is not None and not vegas_df.empty:
@@ -898,14 +909,16 @@ class StockFilterGUI:
         """
         开始筛选按钮回调
 
-        将股票（60开头）和ETF（5开头）分别筛选（包含持仓），持仓股票单独计算指标。
+        将股票（60开头）和ETF（5开头）分别筛选（包含持仓），持仓股票单独计算指标，
+        已平仓股票（扣除持仓）单独计算指标。
 
         筛选流程：
             1. 加载数据（如未加载则从数据库读取）
             2. 按代码前缀分为股票（60开头）和ETF（5开头）
             3. 对股票和ETF分别执行筛选流水线（包含持仓股票）
             4. 对所有持仓股票直接计算指标（不筛选）
-            5. 结果分别填充到三个tab
+            5. 对所有已平仓股票（扣除持仓）直接计算指标（不筛选）
+            6. 结果分别填充到四个tab
         """
         if self.is_running:
             return
@@ -955,18 +968,31 @@ class StockFilterGUI:
                 # === 持仓股票计算（不筛选，直接计算指标）===
                 self.root.after(0, lambda: self.log_result("=== 持仓计算开始 ==="))
                 if holding_list:
-                    self._compute_holding_indicators(holding_list, date)
+                    self._compute_indicators(holding_list, date)
                     holding_items = self._score_and_build_items(holding_list, date, code_to_name)
                 else:
                     holding_items = []
+
+                # === 历史（已平仓）股票计算（扣除持仓）===
+                self.root.after(0, lambda: self.log_result("=== 历史(已平仓)计算开始 ==="))
+                closed_codes = migrate_trades.get_closed_position_codes()
+                history_codes = [c for c in closed_codes
+                                 if c not in holding_codes and c in code_to_name]
+                if history_codes:
+                    self._compute_indicators(history_codes, date)
+                    history_items = self._score_and_build_items(history_codes, date, code_to_name)
+                else:
+                    history_items = []
 
                 # 更新结果
                 self.stock_filtered = stock_items
                 self.etf_filtered = etf_items
                 self.holding_list = holding_items
+                self.history_list = history_items
                 self.root.after(0, self.update_result_list)
                 self.root.after(0, lambda: self.log_result(
-                    f"筛选完成！股票 {len(stock_items)} 只, ETF {len(etf_items)} 只, 持仓 {len(holding_items)} 只"))
+                    f"筛选完成！股票 {len(stock_items)} 只, ETF {len(etf_items)} 只, "
+                    f"持仓 {len(holding_items)} 只, 历史 {len(history_items)} 只"))
 
             except Exception as e:
                 error_msg = str(e)

@@ -45,7 +45,7 @@ from typing import List, Optional
 
 from utils.logger import get_logger, get_log_dir
 from data.read_data import get_all_stock_codes, get_stock_name
-from data import extract_data
+from data import extract_data, migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 
 logger = get_logger(__name__)
@@ -108,13 +108,8 @@ def filter_by_vp_slope(date: str, stock_codes: List[str]) -> List[str]:
 
 
 def get_holding_codes() -> List[str]:
-    """从shareholding.txt读取持仓股票代码"""
-    holding_file = os.path.join(os.path.dirname(__file__), 'shareholding.txt')
-    if not os.path.exists(holding_file):
-        logger.warning(f"持仓文件不存在: {holding_file}")
-        return []
-    with open(holding_file, 'r', encoding='utf-8') as f:
-        codes = [line.strip() for line in f if line.strip()]
+    """从数据库交易流水读取持仓股票代码（净持仓数量>0）"""
+    codes = migrate_trades.get_holding_position_codes()
     logger.info(f"读取到 {len(codes)} 只持仓股票")
     return codes
 

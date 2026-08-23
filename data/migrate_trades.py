@@ -20,7 +20,7 @@
 import os
 import sys
 import sqlite3
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import pandas as pd
 
@@ -320,6 +320,154 @@ def get_trade_pnl_stats(db_path: str = DB_PATH) -> dict:
             pnl_by_account[account] = pnl_by_account.get(account, 0.0) + amount
 
     return pnl_by_account
+
+
+def get_holding_valuation_stats(db_path: str = DB_PATH) -> dict:
+    """
+    统计各账户当前持仓的估值与浮盈（按最近交易日收盘价）
+
+    采用与 get_trade_pnl_stats 相同的移动平均成本法维护各账户持仓，
+    对净持仓数量>0的股票，取 stock_daily 中该股票最近交易日的收盘价计算：
+    - market_value：Σ(持仓数量 × 最新收盘价)
+    - cost：持仓累计成本
+    - floating_pnl：market_value - cost
+
+    资金类业务（股息、红利、利息）以及「配股权证」「股份转出」等
+    拆股/转股类业务不改变持仓股数，故跳过。
+
+    Args:
+        db_path: 数据库路径
+
+    Returns:
+        {账户: {'market_value': 持仓估值, 'cost': 持仓成本, 'floating_pnl': 持仓浮盈}, ...}
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT account, stock_code, trade_date, business_name, trade_quantity, amount
+            FROM trade_records
+            WHERE stock_code IS NOT NULL
+              AND business_name NOT IN ('银行转证券', '证券转银行', '银行转存', '银行转取')
+            ORDER BY account, stock_code, trade_date, id
+        ''')
+        rows = cursor.fetchall()
+
+        positions = {}  # {account: {stock_code: [持仓数量, 持仓成本]}}
+        for account, stock_code, _trade_date, business_name, qty, amount in rows:
+            qty = qty or 0
+            amount = amount or 0.0
+            pos = positions.setdefault(account, {}).setdefault(stock_code, [0, 0.0])
+
+            if business_name == '红股入账':
+                # 送股：增加股数，成本为0
+                pos[0] += qty
+            elif business_name.startswith('证券买入'):
+                # 买入：增加持仓，累计成本（发生金额为负，取反为正成本）
+                pos[0] += qty
+                pos[1] += -amount
+            elif business_name.startswith('证券卖出'):
+                # 卖出：按平均成本减少持仓与成本
+                sell_qty = -qty
+                avg_cost = pos[1] / pos[0] if pos[0] > 0 else 0.0
+                pos[0] -= sell_qty
+                pos[1] -= avg_cost * sell_qty
+                if pos[0] <= 0:
+                    pos[0] = 0
+                    pos[1] = 0.0
+            # 其余业务（股息、红利、利息、配股权证、股份转出等）不改变持仓股数
+
+        result = {}
+        for account, pos_map in positions.items():
+            market_value = 0.0
+            cost = 0.0
+            for stock_code, (qty, _cost) in pos_map.items():
+                if qty <= 0:
+                    continue
+                cost += _cost
+                cursor.execute(
+                    'SELECT close FROM stock_daily WHERE stock_code = ? ORDER BY date DESC LIMIT 1',
+                    (stock_code,)
+                )
+                row = cursor.fetchone()
+                if row is not None and row[0] is not None:
+                    market_value += qty * float(row[0])
+
+            result[account] = {
+                'market_value': round(market_value, 2),
+                'cost': round(cost, 2),
+                'floating_pnl': round(market_value - cost, 2),
+            }
+    finally:
+        conn.close()
+
+    return result
+
+
+def get_holding_position_codes(db_path: str = DB_PATH) -> List[str]:
+    """
+    获取当前持仓股票代码（净持仓数量>0的股票）
+
+    统计 trade_records 中各股票代码的成交数量之和，净数量>0表示当前仍持有。
+    只统计会真实改变持仓股数的业务（证券买入/证券卖出/红股入账），
+    排除「配股权证」「股份转出」等未处理的拆股/转股类业务以及资金类业务。
+
+    Args:
+        db_path: 数据库路径
+
+    Returns:
+        持仓股票代码列表（按代码升序）
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT stock_code
+            FROM trade_records
+            WHERE stock_code IS NOT NULL
+              AND (business_name LIKE '证券买入%'
+                   OR business_name LIKE '证券卖出%'
+                   OR business_name = '红股入账')
+            GROUP BY stock_code
+            HAVING SUM(trade_quantity) > 0
+            ORDER BY stock_code
+        ''')
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_closed_position_codes(db_path: str = DB_PATH) -> List[str]:
+    """
+    获取所有已平仓股票代码（净持仓为0的股票）
+
+    统计 trade_records 中各股票代码的成交数量之和，净数量为0表示已全部卖出（平仓）。
+    只统计会真实改变持仓股数的业务（证券买入/证券卖出/红股入账），
+    排除「配股权证」「股份转出」等未处理的拆股/转股类业务以及资金类业务。
+
+    Args:
+        db_path: 数据库路径
+
+    Returns:
+        已平仓股票代码列表（按代码升序）
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT stock_code
+            FROM trade_records
+            WHERE stock_code IS NOT NULL
+              AND (business_name LIKE '证券买入%'
+                   OR business_name LIKE '证券卖出%'
+                   OR business_name = '红股入账')
+            GROUP BY stock_code
+            HAVING SUM(trade_quantity) = 0
+            ORDER BY stock_code
+        ''')
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
 
 
 def main():
