@@ -530,7 +530,6 @@ class StockFilterGUI:
         
         def run():
             try:
-                adj_fetcher = extract_data.RealAdjustFactorFetcher(proxy=None)
                 extract_data.create_database(extract_data.DB_PATH)
                 
                 stock_list = extract_data.get_sh_a_stock_list()
@@ -542,87 +541,25 @@ class StockFilterGUI:
                 
                 self.root.after(0, lambda: self.log_result(f"获取到 {total} 只股票"))
                 
-                import sqlite3
-                import time
                 from datetime import timedelta
                 
-                conn = sqlite3.connect(extract_data.DB_PATH)
                 end_date = datetime.now()
                 end_date_str = end_date.strftime('%Y-%m-%d')
-                
-                success_count = 0
-                total_records = 0
-                
-                for i, (stock_code, stock_name) in enumerate(stock_list):
-                    stock_info = extract_data.get_stock_info(conn, stock_code)
-                    
-                    if stock_info is None:
-                        start_date = end_date - timedelta(days=extract_data.YEARS * 365)
-                        start_date_str = start_date.strftime('%Y-%m-%d')
-                        
-                        df_adj, source = adj_fetcher.fetch_adjust_factor(
-                            stock_code, start_date_str, end_date_str
-                        )
-                        
-                        if df_adj is not None and not df_adj.empty:
-                            success_count += 1
-                            total_records += len(df_adj)
-                            extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj)
-                            extract_data.update_stock_info(conn, stock_code, df_adj, stock_name)
-                    else:
-                        df_adj, source = adj_fetcher.fetch_adjust_factor(
-                            stock_code, stock_info['end_date'], end_date_str
-                        )
-                        
-                        if df_adj is not None and not df_adj.empty:
-                            end_date_data = df_adj[df_adj['date'] == stock_info['end_date']]
-                            
-                            if not end_date_data.empty:
-                                source_close = end_date_data.iloc[0]['close']
-                                db_close = stock_info['end_date_close']
-                                
-                                if abs(source_close - db_close) > 0.01:
-                                    start_date = end_date - timedelta(days=extract_data.YEARS * 365)
-                                    start_date_str = start_date.strftime('%Y-%m-%d')
-                                    
-                                    df_adj_full, source_full = adj_fetcher.fetch_adjust_factor(
-                                        stock_code, start_date_str, end_date_str
-                                    )
-                                    
-                                    if df_adj_full is not None and not df_adj_full.empty:
-                                        success_count += 1
-                                        total_records += len(df_adj_full)
-                                        extract_data.insert_data(extract_data.DB_PATH, stock_code, df_adj_full)
-                                        extract_data.update_stock_info(conn, stock_code, df_adj_full, stock_name)
-                                else:
-                                    new_data = df_adj[df_adj['date'] > stock_info['end_date']]
-                                    
-                                    if not new_data.empty:
-                                        success_count += 1
-                                        total_records += len(new_data)
-                                        extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                                        extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
-                            else:
-                                new_data = df_adj[df_adj['date'] > stock_info['end_date']]
-                                
-                                if not new_data.empty:
-                                    success_count += 1
-                                    total_records += len(new_data)
-                                    extract_data.insert_data(extract_data.DB_PATH, stock_code, new_data)
-                                    extract_data.update_stock_info(conn, stock_code, new_data, stock_name)
-                    
-                    if (i + 1) % 50 == 0:
-                        progress = (i + 1) / total * 100
-                        self.root.after(0, lambda p=progress, s=success_count, r=total_records: 
-                                       self.log_result(f"进度: {p:.1f}% - 成功: {s} 只股票, {r} 条记录"))
-                    
-                    time.sleep(extract_data.REQUEST_DELAY)
-                
-                conn.close()
+                start_date = end_date - timedelta(days=extract_data.YEARS * 365)
+                start_date_str = start_date.strftime('%Y-%m-%d')
+
+                def progress(done, total_cnt, success, fail, message):
+                    if done % 50 == 0 or done == total_cnt:
+                        self.root.after(0, lambda m=message: self.log_result(m))
+
+                success_count, fail_count, _ = extract_data.update_all_stock_data(
+                    stock_list, start_date_str, end_date_str,
+                    proxy=None, max_workers=3, progress_cb=progress
+                )
                 
                 self.stock_list = read_data.get_all_stock_codes_with_names()
-                self.root.after(0, lambda: self.log_result(f"提取完成！成功 {success_count} 只股票, 共 {total_records} 条记录"))
-                self.root.after(0, lambda: messagebox.showinfo("成功", f"提取完成！\n成功: {success_count} 只股票\n共: {total_records} 条记录", parent=self.root))
+                self.root.after(0, lambda: self.log_result(f"提取完成！成功 {success_count} 只股票, 失败 {fail_count} 只"))
+                self.root.after(0, lambda: messagebox.showinfo("成功", f"提取完成！\n成功: {success_count} 只股票\n失败: {fail_count} 只", parent=self.root))
                 
             except Exception as e:
                 error_msg = str(e)

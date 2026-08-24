@@ -24,7 +24,6 @@ logger = get_logger(__name__)
 OUTPUT_DIR = r'.'
 DB_PATH = os.path.join(OUTPUT_DIR, 'data', 'stock_data.db')
 YEARS = 5
-REQUEST_DELAY = 0.3
 
 
 class RealAdjustFactorFetcher:
@@ -48,17 +47,47 @@ class RealAdjustFactorFetcher:
                 'https': self.proxy
             }
             logger.info(f"使用代理: {self.proxy}")
-    
+
+    def _request_with_retry(self, url: str, params: Optional[dict] = None,
+                            timeout: int = 30, max_retries: int = 3) -> Optional['requests.Response']:
+        """
+        带重试的HTTP GET请求。
+
+        新浪接口会偶发主动断开连接（RemoteDisconnected）或在并发下复用
+        已失效的keep-alive连接，重试并重建会话可显著降低失败率。
+
+        Args:
+            url: 请求地址
+            params: URL查询参数
+            timeout: 超时秒数
+            max_retries: 最大重试次数（含首次）
+        Returns:
+            Response；所有重试失败后抛异常
+        """
+        for attempt in range(max_retries):
+            if attempt > 0:
+                # 连接可能已被服务端关闭，重建会话并使用退避延迟
+                self._init_session()
+                time.sleep(0.5 * attempt)
+            try:
+                response = self.session.get(url, params=params, timeout=timeout)
+                response.raise_for_status()
+                return response
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning(f"请求失败，重试中({attempt + 1}/{max_retries - 1}): {e}")
+        return None
+
     def fetch_adjust_factor_from_sina(self, stock_code: str) -> Optional[Dict]:
         """从新浪财经获取前复权因子"""
         try:
-            import requests
             import re
             import json
             
             url = f'http://finance.sina.com.cn/realstock/company/sh{stock_code}/qfq.js'
             
-            response = self.session.get(url, timeout=30)
+            response = self._request_with_retry(url, timeout=30)
             response.raise_for_status()
             
             content = response.text
@@ -94,10 +123,10 @@ class RealAdjustFactorFetcher:
             logger.warning(f"获取前复权因子失败: {e}")
             return None
     
-    def fetch_from_sina(self, stock_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+    def fetch_from_sina(self, stock_code: str, start_date: str, end_date: str,
+                        datalen: int = 1825) -> Optional[pd.DataFrame]:
         """从新浪财经获取前复权价格"""
         try:
-            import requests
             import pandas as pd
             
             # ETF不需要前复权处理（极少分红拆股）
@@ -110,10 +139,10 @@ class RealAdjustFactorFetcher:
             params = {
                 'symbol': f'sh{stock_code}',
                 'scale': 240,
-                'datalen': 1825,
+                'datalen': datalen,
             }
             
-            response = self.session.get(url, params=params, timeout=30)
+            response = self._request_with_retry(url, params=params, timeout=30)
             response.raise_for_status()
             
             try:
@@ -175,13 +204,61 @@ class RealAdjustFactorFetcher:
             logger.warning(f"新浪财经获取失败: {e}")
             return None
     
-    def fetch_adjust_factor(self, stock_code: str, start_date: str, end_date: str) -> Tuple[Optional[pd.DataFrame], str]:
+    def fetch_adjust_factor(self, stock_code: str, start_date: str, end_date: str,
+                            datalen: int = 1825) -> Tuple[Optional[pd.DataFrame], str]:
         """获取前复权价格"""
-        df = self.fetch_from_sina(stock_code, start_date, end_date)
+        df = self.fetch_from_sina(stock_code, start_date, end_date, datalen=datalen)
         if df is not None and not df.empty:
             return df, 'sina'
         
         return None, 'failed'
+
+    def fetch_incremental(self, stock_code: str, info: Optional[Dict], start_date: str,
+                          end_date: str, datalen: int = 50) -> Tuple[Optional[pd.DataFrame], str]:
+        """
+        根据数据库现有信息增量获取数据。
+
+        - 数据库中无此股票：全量下载（5年数据）
+        - 已有股票：先用少量数据（datalen条）判断复权因子是否变动
+          - 因子未变：只返回 end_date 之后的新数据
+          - 因子变动：全量重新下载
+
+        Args:
+            stock_code: 股票代码
+            info: 数据库中的现有信息（get_stock_info 的返回值），无则为 None
+            start_date: 全量下载起始日期（YYYY-MM-DD）
+            end_date: 结束日期（YYYY-MM-DD）
+            datalen: 增量判断时请求的最近数据条数
+        Returns:
+            (待写入的DataFrame, 数据源)；失败返回 (None, 'failed')
+        """
+        if info is None:
+            return self.fetch_adjust_factor(stock_code, start_date, end_date, datalen=1825)
+
+        df_small = self.fetch_from_sina(stock_code, info['end_date'], end_date,
+                                        datalen=datalen)
+        if df_small is None or df_small.empty:
+            return None, 'failed'
+        source = 'sina'
+
+        end_ts = pd.to_datetime(info['end_date'])
+        end_data = df_small[df_small['date'] == end_ts]
+
+        if end_data.empty:
+            # 停牌等导致数据库最新日期不在最近数据中，回退全量再截取新数据
+            df_full, source = self.fetch_adjust_factor(stock_code, start_date, end_date,
+                                                       datalen=1825)
+            if df_full is None or df_full.empty:
+                return None, source
+            return df_full[df_full['date'] > end_ts], source
+
+        source_close = end_data.iloc[0]['close']
+        db_close = info.get('end_date_close')
+        if db_close is not None and abs(source_close - db_close) > 0.01:
+            # 复权因子变动，全量重新下载
+            return self.fetch_adjust_factor(stock_code, start_date, end_date, datalen=1825)
+
+        return df_small[df_small['date'] > end_ts], source
 
 
 def create_database(db_path: str):
@@ -301,6 +378,107 @@ def update_stock_info(conn, stock_code, df, stock_name=''):
         VALUES (?, ?, ?, ?, ?)
     """, (stock_code, stock_name, total_records, start_date, new_end_date))
     conn.commit()
+
+
+def update_all_stock_data(stock_list: List[tuple], start_date: str, end_date: str,
+                          proxy: Optional[str] = None, max_workers: int = 3,
+                          progress_cb=None, incremental_datalen: int = 50,
+                          request_delay: float = 0.2) -> Tuple[int, int, Dict]:
+    """
+    并发下载所有股票价格数据并写入数据库。
+
+    网络请求（I/O密集型）使用线程池并发执行，大幅提升提取速度；
+    数据库写入在主线程串行执行，避免SQLite并发写入冲突。
+    每只股票通过 fetch_incremental 自动判断全量下载或增量更新，
+    日常增量更新只拉取最近 incremental_datalen 条数据。
+    每个worker线程每完成一只股票后停顿 request_delay 秒，
+    控制整体请求频率，降低被数据源屏蔽的风险。
+
+    Args:
+        stock_list: [(stock_code, stock_name), ...]
+        start_date: 全量下载起始日期（YYYY-MM-DD）
+        end_date: 结束日期（YYYY-MM-DD）
+        proxy: HTTP代理
+        max_workers: 并发下载线程数
+        progress_cb: 进度回调 callback(done, total, success, fail, message)
+        incremental_datalen: 增量更新时请求的最近数据条数
+        request_delay: 每个线程每完成一只股票后的停顿秒数
+    Returns:
+        (success_count, fail_count, source_stats)
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    create_database(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+
+    # 预加载现有股票信息（只读，供各线程判断增量/全量）
+    info_map: Dict[str, Dict] = {}
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT si.stock_code, si.start_date, si.end_date,
+                   (SELECT close FROM stock_daily
+                    WHERE stock_code = si.stock_code AND date = si.end_date)
+            FROM stock_info si
+        """)
+        for code, start, db_end, close in cursor.fetchall():
+            info_map[code] = {
+                'start_date': start,
+                'end_date': db_end,
+                'end_date_close': close,
+            }
+        cursor.close()
+    except Exception as e:
+        logger.warning(f"预加载股票信息失败: {e}")
+
+    total = len(stock_list)
+    success_count = 0
+    fail_count = 0
+    source_stats: Dict[str, int] = {}
+    done_count = 0
+
+    def fetch_one(item: tuple) -> tuple:
+        """单个股票的下载任务（仅网络请求，在worker线程执行）"""
+        code, name = item
+        info = info_map.get(code)
+        fetcher = RealAdjustFactorFetcher(proxy=proxy)
+        try:
+            df, source = fetcher.fetch_incremental(code, info, start_date, end_date,
+                                                   datalen=incremental_datalen)
+            return code, name, df, source
+        except Exception as e:
+            logger.warning(f"股票 {code} 获取失败: {e}")
+            return code, name, None, 'failed'
+        finally:
+            # 线程级节流：每完成一只股票停顿一小会儿，降低请求频率
+            time.sleep(request_delay)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fetch_one, item): item for item in stock_list}
+        for future in as_completed(futures):
+            code, name, df, source = future.result()
+            source_stats[source] = source_stats.get(source, 0) + 1
+
+            if df is not None and not df.empty:
+                try:
+                    insert_data(DB_PATH, code, df)
+                    update_stock_info(conn, code, df, name)
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(f"股票 {code} 写入数据库失败: {e}")
+                    fail_count += 1
+            elif source == 'failed':
+                fail_count += 1
+            # 其余情况：无新数据，不计数
+
+            done_count += 1
+            if progress_cb:
+                progress_cb(done_count, total, success_count, fail_count,
+                            f"进度: {done_count}/{total} ({done_count / total * 100:.1f}%) "
+                            f"- 成功: {success_count}, 失败: {fail_count}")
+
+    conn.close()
+    return success_count, fail_count, source_stats
 
 
 def get_sh_etf_list():
@@ -497,7 +675,6 @@ def main():
         logger.info("请运行: pip install requests pandas numpy")
         return
     
-    adj_fetcher = RealAdjustFactorFetcher(proxy=args.proxy)
     create_database(DB_PATH)
     
     logger.info("开始获取前复权价格数据...")
@@ -511,114 +688,22 @@ def main():
         return
     
     logger.info(f"共处理 {total} 只上证A股及ETF")
-    
-    success_count = 0
-    fail_count = 0
-    source_stats = {'sina': 0, 'failed': 0}
-    
-    conn = sqlite3.connect(DB_PATH)
-    
-    for i, stock_code in enumerate(stock_codes):
-        logger.debug(f"处理股票: {stock_code}")
-        
-        stock_info = get_stock_info(conn, stock_code)
-        
-        end_date = datetime.now()
-        end_date_str = end_date.strftime('%Y-%m-%d')
-        
-        if stock_info is None:
-            logger.debug("数据库中无此股票，下载最近5年数据")
-            start_date = end_date - timedelta(days=YEARS * 365)
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            
-            df_adj, source = adj_fetcher.fetch_adjust_factor(
-                stock_code,
-                start_date_str,
-                end_date_str
-            )
-            
-            source_stats[source] = source_stats.get(source, 0) + 1
-            
-            if df_adj is not None and not df_adj.empty:
-                success_count += 1
-                insert_data(DB_PATH, stock_code, df_adj)
-                update_stock_info(conn, stock_code, df_adj)
-                logger.debug(f"成功下载 {len(df_adj)} 条记录")
-            else:
-                fail_count += 1
-                logger.debug("下载失败")
-        else:
-            logger.debug(f"数据库中已有此股票，最新日期: {stock_info['end_date']}")
-            
-            df_adj, source = adj_fetcher.fetch_adjust_factor(
-                stock_code,
-                stock_info['end_date'],
-                end_date_str
-            )
-            
-            source_stats[source] = source_stats.get(source, 0) + 1
-            
-            if df_adj is not None and not df_adj.empty:
-                end_date_data = df_adj[df_adj['date'] == stock_info['end_date']]
-                
-                if not end_date_data.empty:
-                    source_close = end_date_data.iloc[0]['close']
-                    db_close = stock_info['end_date_close']
-                    
-                    logger.debug(f"数据库收盘价: {db_close:.2f}, 数据源收盘价: {source_close:.2f}")
-                    
-                    if abs(source_close - db_close) > 0.01:
-                        logger.debug("复权因子变动，重新下载所有数据")
-                        start_date = end_date - timedelta(days=YEARS * 365)
-                        start_date_str = start_date.strftime('%Y-%m-%d')
-                        
-                        df_adj_full, source_full = adj_fetcher.fetch_adjust_factor(
-                            stock_code,
-                            start_date_str,
-                            end_date_str
-                        )
-                        
-                        if df_adj_full is not None and not df_adj_full.empty:
-                            success_count += 1
-                            insert_data(DB_PATH, stock_code, df_adj_full)
-                            update_stock_info(conn, stock_code, df_adj_full)
-                            logger.debug(f"成功重新下载 {len(df_adj_full)} 条记录")
-                        else:
-                            fail_count += 1
-                            logger.debug("重新下载失败")
-                    else:
-                        logger.debug("复权因子未变动，只添加新数据")
-                        new_data = df_adj[df_adj['date'] > stock_info['end_date']]
-                        
-                        if not new_data.empty:
-                            success_count += 1
-                            insert_data(DB_PATH, stock_code, new_data)
-                            update_stock_info(conn, stock_code, new_data)
-                            logger.debug(f"成功添加 {len(new_data)} 条新记录")
-                        else:
-                            logger.debug("无新数据")
-                else:
-                    logger.debug("数据源中无end_date当天数据，只添加新数据")
-                    new_data = df_adj[df_adj['date'] > stock_info['end_date']]
-                    
-                    if not new_data.empty:
-                        success_count += 1
-                        insert_data(DB_PATH, stock_code, new_data)
-                        update_stock_info(conn, stock_code, new_data)
-                        logger.debug(f"成功添加 {len(new_data)} 条新记录")
-                    else:
-                        logger.debug("无新数据")
-            else:
-                fail_count += 1
-                logger.debug("下载失败")
-        
-        if (i + 1) % 100 == 0 or i == total - 1:
-            logger.info(f"进度: {i + 1}/{total} ({(i + 1)/total*100:.1f}%) - 成功: {success_count}, 失败: {fail_count}")
-        
-        time.sleep(REQUEST_DELAY)
-    
-    conn.close()
-    
+    logger.info("使用并发下载（默认3线程，无需逐只等待）...")
+
+    end_date = datetime.now()
+    end_date_str = end_date.strftime('%Y-%m-%d')
+    start_date = end_date - timedelta(days=YEARS * 365)
+    start_date_str = start_date.strftime('%Y-%m-%d')
+
+    def progress(done, total_cnt, success, fail, message):
+        if done % 100 == 0 or done == total_cnt:
+            logger.info(message)
+
+    success_count, fail_count, source_stats = update_all_stock_data(
+        stock_codes, start_date_str, end_date_str,
+        proxy=args.proxy, max_workers=3, progress_cb=progress
+    )
+
     logger.info("=" * 70)
     logger.info("数据统计")
     logger.info("=" * 70)
