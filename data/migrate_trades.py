@@ -203,6 +203,15 @@ def migrate_trade_records(excel_path: str = EXCEL_PATH, db_path: str = DB_PATH) 
             inserted_total += len(records)
             skipped_total += skipped
             logger.info(f"账户[{account}] 迁移完成：新增 {len(records)} 条，跳过重复 {skipped} 条")
+
+        # 迁移完成后，删除所有临时交易记录（GUI右键买卖产生）
+        cursor.execute(
+            "DELETE FROM trade_records WHERE business_name IN ('证券买入(临时)', '证券卖出(临时)')"
+        )
+        deleted_temp = cursor.rowcount
+        conn.commit()
+        if deleted_temp > 0:
+            logger.info(f"已删除 {deleted_temp} 条临时交易记录")
     finally:
         conn.close()
 
@@ -468,6 +477,180 @@ def get_closed_position_codes(db_path: str = DB_PATH) -> List[str]:
         return [row[0] for row in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def add_temp_sell_record(stock_code: str, trade_date: str, close_price: float,
+                         quantities: List[tuple], db_path: str = DB_PATH) -> int:
+    """
+    为指定股票记录临时卖出交易（持仓tab右键"卖出"功能）。
+
+    Args:
+        stock_code: 股票代码
+        trade_date: 交易日期（YYYY-MM-DD）
+        close_price: 卖出价格（最新收盘价）
+        quantities: [(account, 持仓数量), ...]
+        db_path: 数据库路径
+
+    Returns:
+        插入的交易记录条数
+    """
+    create_trade_table(db_path)
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        records = []
+        for account, qty in quantities:
+            qty = int(qty)
+            if qty <= 0:
+                continue
+            records.append((
+                account,
+                trade_date,
+                '证券卖出(临时)',   # 标记为临时记录，便于与Excel迁移的正式流水区分
+                stock_code,
+                round(close_price, 4),
+                -qty,               # 卖出数量取负（正=买入，负=卖出）
+                round(close_price * qty, 2),  # 交易金额 = 收盘价 × 持仓数
+            ))
+        if records:
+            cursor.executemany('''
+                INSERT INTO trade_records
+                    (account, trade_date, business_name, stock_code, trade_price, trade_quantity, amount)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', records)
+            conn.commit()
+        return len(records)
+    finally:
+        conn.close()
+
+
+def sell_holding(stock_code: str, trade_date: str, db_path: str = DB_PATH) -> Tuple[int, float]:
+    """
+    持仓右键卖出：按数据库最新收盘价记录临时卖出交易。
+
+    卖出数量 = 该股票在各账户的净持仓数量（跨账户分别记录）；
+    卖出价格 = 数据库中的最新收盘价；
+    交易金额 = 收盘价 × 持仓数。
+
+    Args:
+        stock_code: 股票代码
+        trade_date: 交易日期（YYYY-MM-DD）
+        db_path: 数据库路径
+
+    Returns:
+        (插入记录数, 卖出价格)；无持仓或无法获取收盘价时插入记录数为0
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        # 各账户净持仓数量（只统计改变持仓股数的业务）
+        cursor.execute('''
+            SELECT account, SUM(trade_quantity)
+            FROM trade_records
+            WHERE stock_code = ?
+              AND (business_name LIKE '证券买入%'
+                   OR business_name LIKE '证券卖出%'
+                   OR business_name = '红股入账')
+            GROUP BY account
+            HAVING SUM(trade_quantity) > 0
+        ''', (stock_code,))
+        quantities = [(account, int(qty)) for account, qty in cursor.fetchall()]
+
+        # 数据库最新收盘价
+        cursor.execute(
+            'SELECT close FROM stock_daily WHERE stock_code = ? ORDER BY date DESC LIMIT 1',
+            (stock_code,)
+        )
+        row = cursor.fetchone()
+        if not quantities or row is None or row[0] is None:
+            return 0, 0.0
+        close_price = float(row[0])
+    finally:
+        conn.close()
+
+    count = add_temp_sell_record(stock_code, trade_date, close_price, quantities, db_path)
+    return count, close_price
+
+
+def add_temp_buy_record(stock_code: str, trade_date: str, close_price: float,
+                        account: str, quantity: int = 100,
+                        db_path: str = DB_PATH) -> int:
+    """
+    为指定股票记录临时买入交易（股票/ETF/历史tab右键"买入"功能）。
+
+    Args:
+        stock_code: 股票代码
+        trade_date: 交易日期（YYYY-MM-DD）
+        close_price: 买入价格（最新收盘价）
+        account: 归属账户
+        quantity: 买入数量，默认100
+        db_path: 数据库路径
+
+    Returns:
+        插入的交易记录条数（0或1）
+    """
+    create_trade_table(db_path)
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        quantity = int(quantity)
+        if quantity <= 0:
+            return 0
+        # 买入：数量为正，发生金额为负（与Excel迁移的买入流水符号一致）
+        record = (
+            account,
+            trade_date,
+            '证券买入(临时)',   # 标记为临时记录，便于与Excel迁移的正式流水区分
+            stock_code,
+            round(close_price, 4),
+            quantity,
+            round(-(close_price * quantity), 2),  # 交易金额 = -收盘价 × 数量
+        )
+        cursor.execute('''
+            INSERT INTO trade_records
+                (account, trade_date, business_name, stock_code, trade_price, trade_quantity, amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', record)
+        conn.commit()
+        return 1
+    finally:
+        conn.close()
+
+
+def buy_holding(stock_code: str, trade_date: str, account: str = '40',
+                quantity: int = 100, db_path: str = DB_PATH) -> Tuple[int, float]:
+    """
+    右键买入：按数据库最新收盘价记录临时买入交易。
+
+    买入数量固定（默认100股），卖出价格 = 数据库中的最新收盘价，
+    交易金额 = 收盘价 × 数量。
+
+    Args:
+        stock_code: 股票代码
+        trade_date: 交易日期（YYYY-MM-DD）
+        account: 归属账户
+        quantity: 买入数量，默认100
+        db_path: 数据库路径
+
+    Returns:
+        (插入记录数, 买入价格)；无法获取收盘价时插入记录数为0
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT close FROM stock_daily WHERE stock_code = ? ORDER BY date DESC LIMIT 1',
+            (stock_code,)
+        )
+        row = cursor.fetchone()
+        if row is None or row[0] is None:
+            return 0, 0.0
+        close_price = float(row[0])
+    finally:
+        conn.close()
+
+    count = add_temp_buy_record(stock_code, trade_date, close_price, account, quantity, db_path)
+    return count, close_price
 
 
 def main():

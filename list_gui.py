@@ -184,6 +184,8 @@ class StockFilterGUI:
         self.holding_list: List[dict] = []     # 持仓股票计算结果（不筛选，直接计算指标）
         self.history_list: List[dict] = []     # 已平仓股票计算结果（扣除持仓）
         self.query_list: List[dict] = []       # 查询tab结果（手动查询的股票）
+        self.context_tree: Optional[ttk.Treeview] = None  # 右键选中的表格
+        self.context_row: Optional[str] = None            # 右键选中的行
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         self.kline_window: Optional[KLineWindow] = None  # K线图窗口
@@ -349,21 +351,29 @@ class StockFilterGUI:
         self.notebook.add(stock_tab, text='股票')
         self.stock_tree = self._make_tree(stock_tab)
         self.stock_tree.pack(fill=tk.BOTH, expand=True)
+        # 股票tab右键菜单：买入
+        self.stock_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('买入', self._on_buy_holding)]))
 
         etf_tab = ttk.Frame(self.notebook)
         self.notebook.add(etf_tab, text='ETF')
         self.etf_tree = self._make_tree(etf_tab)
         self.etf_tree.pack(fill=tk.BOTH, expand=True)
+        # ETFtab右键菜单：买入
+        self.etf_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('买入', self._on_buy_holding)]))
 
         holding_tab = ttk.Frame(self.notebook)
         self.notebook.add(holding_tab, text='持仓')
         self.holding_tree = self._make_tree(holding_tab)
         self.holding_tree.pack(fill=tk.BOTH, expand=True)
+        # 持仓tab右键菜单：卖出
+        self.holding_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('卖出', self._on_sell_holding)]))
 
         history_tab = ttk.Frame(self.notebook)
         self.notebook.add(history_tab, text='历史')
         self.history_tree = self._make_tree(history_tab)
         self.history_tree.pack(fill=tk.BOTH, expand=True)
+        # 历史tab右键菜单：买入
+        self.history_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('买入', self._on_buy_holding)]))
 
         self.query_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.query_tab, text='查询')
@@ -654,6 +664,102 @@ class StockFilterGUI:
         
         # 直接调用 show()，内部会处理线程
         self.kline_window.show(stock_code, stock_name)
+
+    def _open_context_menu(self, event, menu_items):
+        """
+        Treeview右键菜单：选中行并弹出菜单
+
+        Args:
+            event: 右键事件
+            menu_items: [(菜单项文字, 命令), ...]
+        """
+        tree = event.widget
+        row_id = tree.identify_row(event.y)
+        if not row_id:
+            return
+        tree.selection_set(row_id)
+        self.context_tree = tree
+        self.context_row = row_id
+
+        menu = tk.Menu(self.root, tearoff=0)
+        for label, command in menu_items:
+            menu.add_command(label=label, command=command)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _on_sell_holding(self):
+        """
+        右键卖出：在交易流水记录一条临时卖出交易
+
+        卖出日期 = 当天；卖出数量 = 该股票各账户持仓数；
+        价格 = 数据库最新收盘价；金额 = 收盘价 × 持仓数。
+        """
+        values = self.context_tree.item(self.context_row, 'values')
+        if not values or len(values) < 2:
+            return
+        stock_code = str(values[0])
+        stock_name = str(values[1])
+
+        if not messagebox.askyesno(
+                "确认卖出",
+                f"确认按最新收盘价卖出 {stock_code} {stock_name}？\n将在交易流水中记录临时卖出交易。",
+                parent=self.root):
+            return
+
+        trade_date = datetime.now().strftime('%Y-%m-%d')
+        try:
+            count, price = migrate_trades.sell_holding(stock_code, trade_date)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"记录卖出失败: {error_msg}")
+            messagebox.showerror("错误", f"记录卖出失败: {error_msg}", parent=self.root)
+            return
+
+        if count == 0:
+            messagebox.showwarning("警告", f"{stock_code} 无持仓或无法获取收盘价，未记录卖出。", parent=self.root)
+            return
+
+        self.log_result(f"已记录临时卖出 {stock_code} {stock_name}：{count} 条，卖出价格 {price}")
+        messagebox.showinfo("成功", f"已记录临时卖出 {stock_name}\n卖出价格: {price}\n记录条数: {count}", parent=self.root)
+
+    def _on_buy_holding(self):
+        """
+        右键买入：在交易流水记录一条临时买入交易
+
+        买入日期 = 当天；买入数量 = 100；
+        价格 = 数据库最新收盘价；金额 = 收盘价 × 100。
+        """
+        values = self.context_tree.item(self.context_row, 'values')
+        if not values or len(values) < 2:
+            return
+        stock_code = str(values[0])
+        stock_name = str(values[1])
+
+        account = '40'
+        if not messagebox.askyesno(
+                "确认买入",
+                f"确认按最新收盘价买入 {stock_code} {stock_name}？\n"
+                f"数量: 100，将记录到 {account} 账户。",
+                parent=self.root):
+            return
+
+        trade_date = datetime.now().strftime('%Y-%m-%d')
+        try:
+            count, price = migrate_trades.buy_holding(stock_code, trade_date, account=account, quantity=100)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"记录买入失败: {error_msg}")
+            messagebox.showerror("错误", f"记录买入失败: {error_msg}", parent=self.root)
+            return
+
+        if count == 0:
+            messagebox.showwarning("警告", f"{stock_code} 无法获取收盘价，未记录买入。", parent=self.root)
+            return
+
+        self.log_result(f"已记录临时买入 {stock_code} {stock_name}：{count} 条，买入价格 {price}")
+        messagebox.showinfo("成功", f"已记录临时买入 {stock_name}\n买入价格: {price}\n数量: 100", parent=self.root)
 
     def update_result_list(self):
         """更新筛选结果表格显示（股票tab + ETF tab + 持仓tab + 历史tab + 查询tab）"""
