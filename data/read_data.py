@@ -296,6 +296,30 @@ def get_indicator(stock_code: str, date: str, column: str) -> Optional[int]:
         conn.close()
 
 
+def get_latest_trading_dates(stock_code: str, limit: int = 2) -> List[str]:
+    """
+    获取指定股票最近的N个交易日日期（按日期降序）
+
+    Args:
+        stock_code: 股票代码（如：600000）
+        limit: 获取的最近交易日数量，默认为2
+
+    Returns:
+        日期字符串列表（YYYY-MM-DD格式），按日期降序排列
+    """
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT date FROM stock_daily WHERE stock_code = ? "
+            "ORDER BY date DESC LIMIT ?",
+            (stock_code, limit)
+        )
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def save_indicator(stock_code: str, date: str, column: str, value: int):
     """
     保存单个指标值到 stock_indicators 表（upsert，不影响同行的其他列）

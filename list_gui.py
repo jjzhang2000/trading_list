@@ -53,7 +53,7 @@ import atexit
 
 from data import init_db, extract_data, read_data, migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
-from data.read_data import save_indicator, get_indicator
+from data.read_data import save_indicator, get_indicator, get_latest_trading_dates
 from utils.logger import get_logger
 from utils.window_state import load_window_state, save_window_state
 from kline_window import KLineWindow
@@ -607,6 +607,11 @@ class StockFilterGUI:
         tree.column('volumeprofile', width=100, anchor=tk.CENTER)
         tree.column('total', width=60, anchor=tk.CENTER)
 
+        # 总分升降对应的字体颜色标签
+        tree.tag_configure('up', foreground='green')
+        tree.tag_configure('down', foreground='red')
+        tree.tag_configure('flat', foreground='black')
+
         # 绑定双击事件打开K线图
         tree.bind('<Double-1>', self._on_tree_double_click)
 
@@ -632,9 +637,10 @@ class StockFilterGUI:
             vp_str = str(vp_val) if vp_val != '--' else '--'
             total_str = str(total) if isinstance(total, (int, float)) else str(total)
 
+            trend = item.get('trend', 'flat')
             tree.insert('', tk.END, values=(
                 code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, total_str
-            ))
+            ), tags=(trend,))
 
     def _on_tree_double_click(self, event):
         """
@@ -842,6 +848,7 @@ class StockFilterGUI:
             'occross': occ_val,
             'volumeprofile': vp_val,
             'total': total,
+            'trend': self._get_total_trend(stock_code, total),
         }
 
         # 已查询过相同代码则更新，否则追加
@@ -937,9 +944,12 @@ class StockFilterGUI:
                     'volumeprofile': row.get('volumeprofile', 0),
                     'total': row['strength_score'],
                 })
+            for item in items:
+                item['trend'] = self._get_total_trend(item['code'], item['total'])
             return items
         else:
-            return [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0} for c in sorted(codes)]
+            return [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0, 'trend': 'flat'}
+                    for c in sorted(codes)]
 
     def _compute_indicators(self, codes: list, date: str):
         """为指定代码列表补算所有指标（未经过筛选循环，DB中无缓存）"""
@@ -970,6 +980,34 @@ class StockFilterGUI:
                 if lr['close'] > 0:
                     vpp = lr['slope_short'] / lr['close'] * 1000
                     save_indicator(hcode, date, 'volumeprofile', round(vpp))
+
+    def _compute_total_for_date(self, stock_code: str, date: str) -> int:
+        """计算某股票在指定日期的5指标总分（优先读缓存，未命中则计算并缓存）"""
+        def get_or_compute(col, compute_fn):
+            v = get_indicator(stock_code, date, col)
+            if v is not None:
+                return v
+            return compute_fn()
+
+        st_val = get_or_compute('supertrend', lambda: round(supertrend._get_st_signal(stock_code, date) or 0))
+        vegas_val = get_or_compute('vegas', lambda: _compute_vegas(stock_code, date))
+        bb_val = get_or_compute('bollingerbands', lambda: _compute_bb(stock_code, date))
+        occ_val = get_or_compute('openclosecross', lambda: _compute_occ(stock_code, date))
+        vp_val = get_or_compute('volumeprofile', lambda: _compute_vp(stock_code, date))
+        return st_val + vegas_val + bb_val + occ_val + vp_val
+
+    def _get_total_trend(self, stock_code: str, current_total: int) -> str:
+        """根据最近两个交易日总分升降返回 'up' / 'down' / 'flat'"""
+        dates = get_latest_trading_dates(stock_code, 2)
+        if len(dates) < 2:
+            return 'flat'
+
+        prev_total = self._compute_total_for_date(stock_code, dates[1])
+        if current_total > prev_total:
+            return 'up'
+        if current_total < prev_total:
+            return 'down'
+        return 'flat'
 
     def on_filter(self):
         """
