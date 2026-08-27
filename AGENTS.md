@@ -70,7 +70,7 @@ sqlite3 data/stock_data.db "SELECT * FROM stock_daily LIMIT 10"
 
 ### 导入顺序
 
-标准库 → 第三方库（pandas, numpy, pandas_ta）→ 本地模块
+标准库 → 第三方库（pandas, numpy, pandas_ta, matplotlib）→ 本地模块
 
 使用 `sys.path.insert(0, ...)` 处理跨模块导入。
 
@@ -121,6 +121,7 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50) -> Opti
 - `pandas-ta` - 技术指标
 - `akshare` - 中文股票API
 - `python-dotenv` - 环境变量
+- `matplotlib` - GUI图表绘制（总分趋势图）
 
 ## 重要说明
 

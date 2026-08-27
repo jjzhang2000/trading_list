@@ -51,6 +51,15 @@ from datetime import datetime
 from typing import List, Optional
 import atexit
 
+import matplotlib
+matplotlib.use('TkAgg')
+# 配置中文字体，避免图表中文标题/标签出现缺字警告
+matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun', 'DejaVu Sans']
+matplotlib.rcParams['axes.unicode_minus'] = False
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.dates import WeekdayLocator, MO, DateFormatter
+
 from data import init_db, extract_data, read_data, migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 from data.read_data import save_indicator, get_indicator, get_latest_trading_dates
@@ -189,6 +198,7 @@ class StockFilterGUI:
         self.is_running = False
         self.worker_thread: Optional[StoppableThread] = None
         self.kline_window: Optional[KLineWindow] = None  # K线图窗口
+        self._score_token = 0  # 总分趋势图请求token，用于丢弃过期结果
         
         self.setup_ui()
         
@@ -340,12 +350,21 @@ class StockFilterGUI:
         self.query_entry = ttk.Entry(btn_row, width=10)
         self.query_entry.pack(side=tk.RIGHT, padx=5)
 
-        # Notebook：股票 / ETF / 持仓 / 历史 四个tab
+        # 下部内容区：列表(notebook)与图表框按 3:2 高度分配
+        content_frame = ttk.Frame(middle_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        content_frame.rowconfigure(0, weight=3)  # 列表占 3/5
+        content_frame.rowconfigure(1, weight=2)  # 图表占 2/5
+        content_frame.columnconfigure(0, weight=1)
+
+        # Notebook：股票 / ETF / 持仓 / 历史 / 查询 五个tab
         style = ttk.Style()
         style.configure('TNotebook.Tab', padding=(18, 4))
 
-        self.notebook = ttk.Notebook(middle_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        self.notebook = ttk.Notebook(content_frame)
+        self.notebook.grid(row=0, column=0, sticky='nsew')
+
+        self._setup_score_chart(content_frame)
 
         stock_tab = ttk.Frame(self.notebook)
         self.notebook.add(stock_tab, text='股票')
@@ -379,6 +398,25 @@ class StockFilterGUI:
         self.notebook.add(self.query_tab, text='查询')
         self.query_tree = self._make_tree(self.query_tab)
         self.query_tree.pack(fill=tk.BOTH, expand=True)
+
+    def _setup_score_chart(self, parent):
+        """设置图表框：显示选中股票近30个交易日的指标总分变化曲线"""
+        chart_frame = ttk.Frame(parent)
+        chart_frame.grid(row=1, column=0, sticky='nsew')
+
+        self.score_fig = Figure(figsize=(6, 2.5), dpi=100)
+        self.score_ax = self.score_fig.add_subplot(111)
+        self.score_ax.set_xticks([])
+        self.score_ax.set_yticks([])
+        # 未选中股票时保持空白：隐藏全部轴线、不显示标题
+        for spine in self.score_ax.spines.values():
+            spine.set_visible(False)
+        # 压缩顶部留白，底部预留旋转日期标签空间
+        self.score_fig.subplots_adjust(left=0.05, right=0.98, bottom=0.15, top=0.92)
+
+        self.score_canvas = FigureCanvasTkAgg(self.score_fig, master=chart_frame)
+        self.score_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.score_canvas.draw_idle()
     
     def log_result(self, message: str):
         """
@@ -614,6 +652,8 @@ class StockFilterGUI:
 
         # 绑定双击事件打开K线图
         tree.bind('<Double-1>', self._on_tree_double_click)
+        # 绑定选中事件更新总分趋势图
+        tree.bind('<<TreeviewSelect>>', self._on_tree_select)
 
         return tree
 
@@ -670,6 +710,115 @@ class StockFilterGUI:
         
         # 直接调用 show()，内部会处理线程
         self.kline_window.show(stock_code, stock_name)
+
+    def _on_tree_select(self, event):
+        """
+        Treeview 选中事件处理：在图表框显示该股票近30个交易日的指标总分变化曲线
+
+        Args:
+            event: 选中事件
+        """
+        tree = event.widget
+        selection = tree.selection()
+        if not selection:
+            return
+
+        item = tree.item(selection[0])
+        values = item['values']
+        if not values or len(values) < 2:
+            return
+
+        stock_code = str(values[0])
+        stock_name = str(values[1])
+        self._show_score_history(stock_code, stock_name)
+
+    def _show_score_history(self, stock_code: str, stock_name: str):
+        """
+        后台计算选中股票近30个交易日的指标总分序列并刷新图表
+
+        Args:
+            stock_code: 股票代码
+            stock_name: 股票名称
+        """
+        if self.is_running:
+            return
+
+        # token 自增，用于丢弃过期的计算结果
+        self._score_token += 1
+        token = self._score_token
+
+        # 更新图表标题为「代码 名称」
+        self.score_ax.clear()
+        self.score_ax.spines['top'].set_visible(False)
+        self.score_ax.spines['right'].set_visible(False)
+        self.score_ax.set_title(f"{stock_code} {stock_name}", fontsize=9)
+        self.score_canvas.draw_idle()
+
+        def run():
+            try:
+                # 取最近30个交易日（降序），反转为升序
+                dates = get_latest_trading_dates(stock_code, 30)
+                dates = dates[::-1]
+
+                points = []
+                for d in dates:
+                    if self._score_token != token:
+                        return
+                    total = self._compute_total_for_date(stock_code, d)
+                    points.append((d, total))
+
+                self.root.after(0, lambda: self._draw_score_chart(stock_code, stock_name, points, token))
+            except Exception as e:
+                logger.warning(f"计算 {stock_code} 指标总分历史失败: {e}")
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _draw_score_chart(self, stock_code: str, stock_name: str, points: list, token: int):
+        """
+        在主线程绘制总分变化曲线
+
+        Args:
+            stock_code: 股票代码
+            stock_name: 股票名称
+            points: [(日期字符串, 总分), ...] 按日期升序
+            token: 当前请求的token，用于丢弃过期结果
+        """
+        if self._score_token != token:
+            return
+
+        ax = self.score_ax
+        ax.clear()
+        # 只保留左、下轴线，隐藏上、右轴线
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_title(f"{stock_code} {stock_name}", fontsize=9)
+
+        if not points:
+            ax.text(0.5, 0.5, "暂无数据", ha='center', va='center',
+                    transform=ax.transAxes, color='gray')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            self.score_canvas.draw_idle()
+            return
+
+        xs = [datetime.strptime(d, '%Y-%m-%d') for d, _ in points]
+        ys = [v for _, v in points]
+
+        # 用自然日期作为x轴，周末/节假日无交易会自然留出空档，便于分辨每周交易日
+        ax.plot(xs, ys, marker='o', markersize=3, linewidth=1.5, color='#2b7de9')
+        ax.axhline(0, color='gray', linewidth=0.8, linestyle='--')
+        ax.grid(True, alpha=0.3)
+
+        # 按自然周划分：每周一显示日期和竖向网格线
+        ax.xaxis.set_major_locator(WeekdayLocator(byweekday=MO))
+        fmt = '%Y-%m-%d' if xs[0].year != xs[-1].year else '%m-%d'
+        ax.xaxis.set_major_formatter(DateFormatter(fmt))
+        ax.tick_params(axis='both', labelsize=8)
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+            label.set_horizontalalignment('right')
+
+        self.score_canvas.draw_idle()
 
     def _open_context_menu(self, event, menu_items):
         """
