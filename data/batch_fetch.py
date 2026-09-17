@@ -5,10 +5,9 @@
 使用新浪财经API批量获取股票数据，提高数据获取效率
 """
 
-import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+from datetime import datetime
+from typing import List, Dict
 import time
 import requests
 import os
@@ -107,88 +106,6 @@ class BatchDataFetcher:
                 logger.warning(f"批量获取实时行情失败: {e}")
         
         logger.info(f"批量获取实时行情完成: {len(results)}/{total}")
-        return results
-    
-    def fetch_daily_kline_batch(self, stock_codes: List[str], 
-                                  start_date: str, end_date: str,
-                                  batch_size: int = 50) -> Dict[str, pd.DataFrame]:
-        """
-        批量获取日K线数据
-        
-        注意：新浪K线接口不支持批量，需要逐个获取
-        但可以并发请求提高效率
-        
-        Args:
-            stock_codes: 股票代码列表
-            start_date: 开始日期
-            end_date: 结束日期
-            batch_size: 并发请求数量
-        
-        Returns:
-            字典: {stock_code: DataFrame}
-        """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        
-        results = {}
-        total = len(stock_codes)
-        
-        def fetch_single(code: str) -> Tuple[str, Optional[pd.DataFrame]]:
-            try:
-                url = 'http://quotes.sina.cn/cn/api/json_v2.php/CN_MarketDataService.getKLineData'
-                params = {
-                    'symbol': f'sh{code}',
-                    'scale': 240,
-                    'datalen': 800
-                }
-                
-                response = self.session.get(url, params=params, timeout=15)
-                data = response.json()
-                
-                if not isinstance(data, list):
-                    return code, None
-                
-                records = []
-                for item in data:
-                    if not isinstance(item, dict):
-                        continue
-                    try:
-                        date_str = item.get('day', '')
-                        if start_date <= date_str <= end_date:
-                            records.append({
-                                'date': date_str,
-                                'open': float(item.get('open', 0)),
-                                'close': float(item.get('close', 0)),
-                                'high': float(item.get('high', 0)),
-                                'low': float(item.get('low', 0)),
-                                'volume': float(item.get('volume', 0))
-                            })
-                    except (ValueError, KeyError):
-                        continue
-                
-                if records:
-                    df = pd.DataFrame(records)
-                    df['date'] = pd.to_datetime(df['date'])
-                    df = df.sort_values('date').reset_index(drop=True)
-                    return code, df
-                return code, None
-                
-            except Exception as e:
-                return code, None
-        
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(fetch_single, code): code for code in stock_codes}
-            
-            completed = 0
-            for future in as_completed(futures):
-                completed += 1
-                code, df = future.result()
-                if df is not None:
-                    results[code] = df
-                
-                if completed % 50 == 0:
-                    logger.info(f"  K线数据获取进度: {completed}/{total}")
-        
-        logger.info(f"批量获取K线数据完成: {len(results)}/{total}")
         return results
 
 

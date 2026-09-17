@@ -18,7 +18,7 @@ trading_list/
 │   ├── bollingerband.py  # 布林带
 │   ├── occross.py        # OCC指标
 │   ├── vp_slope.py       # VP斜率
-│   └── trend_score.py    # 趋势评分（ST-Slope截面排序）
+│   └── trend_score.py    # 趋势评分（5指标加总）
 ├── data/                 # 数据模块
 │   ├── extract_data.py   # 新浪API数据获取
 │   ├── init_db.py        # 数据库初始化
@@ -49,7 +49,7 @@ python trading_list.py --update
 
 ```bash
 # 初始化数据库
-python -c "from data.init_db import init_db; init_db()"
+python -c "from data.init_db import init_database; init_database()"
 
 # 提取数据
 python -c "from data.extract_data import main; main()"
@@ -117,11 +117,11 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50) -> Opti
 ## 依赖
 
 - `pandas` - 数据处理
-- `numpy` - 数值计算
+- `numpy` - 数值计算（pandas/pandas-ta/matplotlib 的底层依赖）
 - `pandas-ta` - 技术指标
-- `akshare` - 中文股票API
-- `python-dotenv` - 环境变量
 - `matplotlib` - GUI图表绘制（总分趋势图）
+- `requests` - HTTP请求（新浪财经数据获取）
+- `pywebview` - K线图窗口
 
 ## 重要说明
 
@@ -131,15 +131,26 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50) -> Opti
 4. **右键临时买卖**：持仓tab右键卖出、股票/ETF/历史tab右键买入，按最新收盘价写入业务名带"(临时)"的流水；迁移正式交易流水时自动删除全部临时记录
 5. **无单元测试**：依赖手动测试
 
-### ST-Slope截面排序
+### Vegas通道筛选
 
-评分公式：`composite = zscore(st_above_pct) - zscore(slope_60d)`
+基于3条EMA（12/144/576）的多头排列：
 
-- `st_above_pct`：收盘价高于ST线的百分比（正向贡献）
-- `slope_60d`：60日对数价格线性回归斜率（惩罚过度延伸）
-- `st_above_pct` 越大 → 排名越高
-- `slope_60d` 越大 → 排名越低（过度延伸）
+- **多头排列**：`close > EMA12 > EMA144 > EMA576`
+- **连续多头**：需持续 `>= 5` 个交易日
+- **数据量边界**：
+  - `< 144` 条：直接跳过，不计算Vegas（EMA144无法收敛）
+  - `144 ~ 575` 条：退化为两线判断 `close > EMA12 > EMA144`（不判断EMA576）
+  - `>= 576` 条：三线完整判断
+- **注意**：`ta.ema` 在数据不足周期时返回 `None` 而非 NaN，直接比较会报 `'float' > 'NoneType'`，需按上述边界条件判断后再计算对应EMA线
+
+### 综合评分（5指标加总）
+
+评分公式：`strength_score = supertrend + vegas + bollingerbands + openclosecross + volumeprofile`
+
+- 5 个指标值均从 `stock_indicators` 表读取，已被 clamp 到 [-100, 100]
+- 缺失值按 0 计入
+- 按 `strength_score` 降序排名
 
 ### VP Slope筛选阈值
 
-`(slope_long / close) > 0.005`（日均涨幅>0.5%）
+`slope_long > 0`（长期线性回归斜率向上）

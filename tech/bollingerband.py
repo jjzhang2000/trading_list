@@ -75,7 +75,7 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
         stock_code: 股票代码（如：600000）
         end_date: 结束日期（YYYY-MM-DD格式）
         days: 计算天数，默认为50天
-        period: 移动平均周期，默认为21
+        period: 移动平均周期，默认为20
         std_dev: 标准差倍数，默认为2.0
     
     Returns:

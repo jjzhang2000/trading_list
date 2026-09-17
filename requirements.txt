@@ -1,6 +1,6 @@
 pandas
 numpy
-akshare
-python-dotenv
 pandas-ta
 matplotlib
+requests
+pywebview

@@ -8,7 +8,6 @@
 import os
 import sys
 import pandas as pd
-import numpy as np
 import sqlite3
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
@@ -82,9 +81,6 @@ class RealAdjustFactorFetcher:
     def fetch_adjust_factor_from_sina(self, stock_code: str) -> Optional[Dict]:
         """从新浪财经获取前复权因子"""
         try:
-            import re
-            import json
-            
             url = f'http://finance.sina.com.cn/realstock/company/sh{stock_code}/qfq.js'
             
             response = self._request_with_retry(url, timeout=30)
@@ -127,8 +123,6 @@ class RealAdjustFactorFetcher:
                         datalen: int = 1825) -> Optional[pd.DataFrame]:
         """从新浪财经获取前复权价格"""
         try:
-            import pandas as pd
-            
             # ETF不需要前复权处理（极少分红拆股）
             if stock_code.startswith('5'):
                 factor_dict = None

@@ -7,7 +7,7 @@
 ## 核心功能
 
 - **多指标筛选**：SuperTrend、Vegas通道、布林带、OCC、VP Slope 五个技术指标
-- **ST-Slope 截面排序**：基于SuperTrend偏离度和对数斜率的Z-score合成评分
+- **5指标加总评分**：SuperTrend、Vegas、布林带、OCC、VP Slope 五个指标简单求和作为综合强度评分
 - **趋势强度评分**：综合评分系统，量化多头趋势强弱
 - **持仓股票管理**：从数据库交易流水自动获取持仓股票（净持仓>0）；GUI中结果分五个tab展示（股票、ETF、持仓、历史、查询）
 - **手动查询**：在筛选器组的查询框输入股票代码，实时计算并展示该股票的指标值与总分到「查询」tab，未找到时给出提示
@@ -96,13 +96,13 @@ python trading_list.py -d 2025-03-07 -b 10.0 --update
     ↓
 [1/5] SuperTrend筛选 → 多头趋势
     ↓
-[2/5] Vegas通道筛选 → EMA多头排列且连续多头>=10天
+[2/5] Vegas通道筛选 → EMA多头排列且连续多头>=5天
     ↓
 [3/5] 布林带筛选 → 开口率>阈值 且 收盘价>中轨
     ↓
 [4/5] OCC指标筛选 → 多头趋势
     ↓
-[5/5] VP Slope筛选 → (斜率/收盘价) > 0.005
+[5/5] VP Slope筛选 → 长期斜率 slope_long > 0
     ↓
 计算趋势强度评分（截面Z-score）
     ↓
@@ -114,13 +114,13 @@ ETF跳过ST检查
     ↓
 [1/5] SuperTrend筛选 → 多头趋势
     ↓
-[2/5] Vegas通道筛选 → EMA多头排列且连续多头>=10天
+[2/5] Vegas通道筛选 → EMA多头排列且连续多头>=5天
     ↓
 [3/5] 布林带筛选 → 开口率>阈值 且 收盘价>中轨
     ↓
 [4/5] OCC指标筛选 → 多头趋势
     ↓
-[5/5] VP Slope筛选 → (斜率/收盘价) > 0.005
+[5/5] VP Slope筛选 → 长期斜率 slope_long > 0
     ↓
 计算趋势强度评分（截面Z-score）
     ↓
@@ -165,21 +165,23 @@ ETF跳过ST检查
 
 ### 2. Vegas通道
 
-由6条EMA组成的多层通道系统。
+由3条EMA组成的多头排列通道系统。
 
-| 通道类型 | EMA周期    |
-| ---- | -------- |
-| 短期   | 12, 26   |
-| 中期   | 144, 169 |
-| 长期   | 576, 676 |
+| 通道类型 | EMA周期 |
+| ---- | ----- |
+| 短期   | 12   |
+| 中期   | 144  |
+| 长期   | 576  |
 
 **多头排列条件**：
 
 ```
-EMA12 > EMA26 > EMA144 > EMA169 > EMA576 > EMA676
+close > EMA12 > EMA144 > EMA576
 ```
 
-**筛选要求**：多头排列需**持续 >= 10个交易日**，仅当日多头不足。
+**筛选要求**：多头排列需**持续 >= 5个交易日**，仅当日多头不足。
+
+**数据不足退化**：当历史数据不足576条、EMA576无法计算时，退化为仅判断 `close > EMA12 > EMA144`。
 
 ### 3. 布林带
 
@@ -187,7 +189,7 @@ EMA12 > EMA26 > EMA144 > EMA169 > EMA576 > EMA676
 
 | 参数    | 默认值 |
 | ----- | --- |
-| 周期    | 21  |
+| 周期    | 20  |
 | 标准差倍数 | 2.0 |
 
 **筛选条件**：
@@ -228,37 +230,28 @@ EMA12 > EMA26 > EMA144 > EMA169 > EMA576 > EMA676
 
 **判断规则**：
 
-- (slope / close) > 0.005: 上升趋势（日均涨幅>0.5%）
-- (slope / close) < 0.005: 下降趋势
+- slope_long > 0: 上升趋势
+- slope_long <= 0: 下降/走平
 
-## ST-Slope 截面排序
+## 综合评分（5指标加总）
 
-### 排序因子
+### 评分方式
 
-| 因子              | 说明                     | 处理方式       |
-| ---------------- | ---------------------- | ----------- |
-| st_above_pct     | 收盘价高于SuperTrend线的幅度(%) | Z-score标准化，正贡献 |
-| slope_60d        | 60日对数价格线性回归斜率        | Z-score标准化，负贡献 |
-
-### 合成公式
+从 `stock_indicators` 表读取 5 个指标值（每个值均已被 clamp 到 [-100, 100]），简单求和即为综合评分：
 
 ```
-st_zscore = (st_above_pct - mean_st) / std_st
-slope_zscore = (slope_60d - mean_slope) / std_slope
-composite = st_zscore - slope_zscore
+strength_score = supertrend + vegas + bollingerbands + openclosecross + volumeprofile
 ```
 
-### 强度标签
+| 指标            | 含义                          | 取值范围    |
+| --------------- | ----------------------------- | ---------- |
+| supertrend      | 收盘价高于SuperTrend线的幅度(%) | -100 ~ 100 |
+| vegas           | 收盘价高于EMA144的幅度(%)       | -100 ~ 100 |
+| bollingerbands  | 布林带开口率(%)                | -100 ~ 100 |
+| openclosecross  | OCC偏离度(×1000)              | -100 ~ 100 |
+| volumeprofile   | 短期斜率占比(×1000)            | -100 ~ 100 |
 
-strength_score 由 composite 归一化到 0-10 分：
-
-| 分数范围  | 标签  |
-| ----- | --- |
-| 8-10分 | 极强  |
-| 6-8分  | 很强  |
-| 4-6分  | 较强  |
-| 2-4分  | 一般  |
-| 0-2分  | 较弱  |
+缺失的指标按 0 计入，总分范围约 -500 ~ 500，按总分降序排名。
 
 ## 输出结果
 
@@ -268,24 +261,24 @@ strength_score 由 composite 归一化到 0-10 分：
 
 输出列：
 
-| 列名              | 说明                 |
-| --------------- | ------------------ |
-| rank            | 排名                 |
-| stock_code      | 股票代码               |
-| stock_name      | 股票名称               |
-| strength_score  | 综合强度评分 (0-10)       |
-| st_above_pct    | 收盘价高于SuperTrend线幅度(%) |
-| slope_60d       | 60日对数价格线性回归斜率      |
-| st_zscore       | st_above_pct的Z-score值 |
-| slope_zscore    | slope_60d的Z-score值 |
-| composite       | 合成得分（排序依据）         |
+| 列名              | 说明                          |
+| --------------- | ----------------------------- |
+| rank            | 排名                          |
+| stock_code      | 股票代码                      |
+| stock_name      | 股票名称（持仓股名前加 `*`）    |
+| strength_score  | 综合强度评分（5指标总和）       |
+| supertrend      | SuperTrend偏离度              |
+| vegas           | 收盘价高于EMA144的幅度(%)       |
+| bollingerbands  | 布林带开口率(%)                |
+| openclosecross  | OCC偏离度(×1000)              |
+| volumeprofile   | 短期斜率占比(×1000)            |
 
 ### 示例输出
 
 ```csv
-rank,stock_code,stock_name,strength_score,st_above_pct,slope_60d,...
-1,605376,博迁新材,10.00,32.05,0.0024,...
-2,603256,宏和科技,6.97,32.61,0.0104,...
+rank,stock_code,stock_name,strength_score,supertrend,vegas,bollingerbands,openclosecross,volumeprofile
+1,605376,博迁新材,215,34,55,28,45,53
+2,603256,宏和科技,178,41,32,19,38,48
 ```
 
 ## 命令行参数
@@ -309,7 +302,7 @@ rank,stock_code,stock_name,strength_score,st_above_pct,slope_60d,...
 1. **数据完整性**：确保网络连接正常，以便获取最新的股票数据
 2. **API限制**：数据提取采用并发下载（默认3线程，兼顾速度与接口频率限制），日常增量更新只拉取最近少量数据，避免全量重复下载
 3. **复权因子更新**：系统会自动检测复权因子变动并重新下载数据
-4. **EMA收敛**：Vegas通道的EMA576/676需要足够历史数据才能收敛
+4. **EMA收敛**：Vegas通道的EMA576需要足够历史数据才能收敛；当数据不足576条、EMA576无法计算时，自动退化为仅判断 `close > EMA12 > EMA144` 的两线多头排列
 5. **截面排序**：Z-score基于当日筛选池股票计算，评分具有相对性
 6. **交易盈亏统计的已知限制**：交易流水中的「股份转出」「配股权证」等拆股/转股类业务会改变持仓股数，但发生金额为 0。当前盈亏统计（`data/migrate_trades.py` 的 `get_trade_pnl_stats`）尚未处理这类股数变化，它们暂不影响盈亏数值。等未来出现这类业务实际影响盈亏（例如拆股后卖出）时，再补充相应的股数增减逻辑。
 

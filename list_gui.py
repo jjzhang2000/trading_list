@@ -20,12 +20,13 @@
     │ ☑ SuperTrend  ☑ Vegas通道  ☑ 布林带  ☑ OCC  ☑ VP Slope  [开始筛选]│
     ├─────────────────────────────────────────────────────────────────┤
     │ ┌─────────────────────────────────────────────────────────────┐│
-    │ │ [股票] [ETF] [持仓]  ← Notebook 三个tab                     ││
+    │ │ [股票] [ETF] [持仓] [历史] [查询]  ← Notebook 五个tab     ││
     │ │                                                             ││
-    │ │ 股票tab：60开头股票（含持仓）的筛选结果                       ││
-    │ │ ETF tab ：5开头ETF（含持仓）的筛选结果                        ││
-    │ │ 持仓tab ：shareholding.txt 中所有持仓股票的指标计算结果      ││
-    │ │         （不经过筛选流水线，直接计算全部指标）                ││
+    │ │ 股票tab：60开头股票（扣除持仓）的筛选结果                    ││
+    │ │ ETF tab ：5开头ETF（扣除持仓）的筛选结果                     ││
+    │ │ 持仓tab ：数据库交易流水中净持仓>0股票的指标计算结果         ││
+    │ │ 历史tab ：已平仓股票的指标计算结果                          ││
+    │ │ 查询tab ：手动输入代码查看指标值与总分                      ││
     │ └─────────────────────────────────────────────────────────────┘│
     └─────────────────────────────────────────────────────────────────┘
 
@@ -75,18 +76,6 @@ def get_holding_codes() -> List[str]:
     codes = migrate_trades.get_holding_position_codes()
     logger.info(f"读取到 {len(codes)} 只持仓股票")
     return codes
-
-
-def merge_holdings(holding_codes: List[str], filtered_codes: List[str]) -> List[str]:
-    """合并持仓股票到筛选结果（去重）"""
-    result = filtered_codes.copy()
-    for code in holding_codes:
-        if code not in result:
-            result.append(code)
-    added = len(result) - len(filtered_codes)
-    if added > 0:
-        logger.info(f"添加 {added} 只持仓股票到结果")
-    return result
 
 
 def _compute_vegas(stock_code: str, date: str) -> int:
@@ -369,35 +358,30 @@ class StockFilterGUI:
         stock_tab = ttk.Frame(self.notebook)
         self.notebook.add(stock_tab, text='股票')
         self.stock_tree = self._make_tree(stock_tab)
-        self.stock_tree.pack(fill=tk.BOTH, expand=True)
         # 股票tab右键菜单：买入
         self.stock_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('买入', self._on_buy_holding)]))
 
         etf_tab = ttk.Frame(self.notebook)
         self.notebook.add(etf_tab, text='ETF')
         self.etf_tree = self._make_tree(etf_tab)
-        self.etf_tree.pack(fill=tk.BOTH, expand=True)
         # ETFtab右键菜单：买入
         self.etf_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('买入', self._on_buy_holding)]))
 
         holding_tab = ttk.Frame(self.notebook)
         self.notebook.add(holding_tab, text='持仓')
         self.holding_tree = self._make_tree(holding_tab)
-        self.holding_tree.pack(fill=tk.BOTH, expand=True)
         # 持仓tab右键菜单：卖出
         self.holding_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('卖出', self._on_sell_holding)]))
 
         history_tab = ttk.Frame(self.notebook)
         self.notebook.add(history_tab, text='历史')
         self.history_tree = self._make_tree(history_tab)
-        self.history_tree.pack(fill=tk.BOTH, expand=True)
         # 历史tab右键菜单：买入
         self.history_tree.bind('<Button-3>', lambda e: self._open_context_menu(e, [('买入', self._on_buy_holding)]))
 
         self.query_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.query_tab, text='查询')
         self.query_tree = self._make_tree(self.query_tab)
-        self.query_tree.pack(fill=tk.BOTH, expand=True)
 
     def _setup_score_chart(self, parent):
         """设置图表框：显示选中股票近30个交易日的指标总分变化曲线"""
@@ -622,10 +606,13 @@ class StockFilterGUI:
         self.worker_thread.start()
     
     def _make_tree(self, parent) -> ttk.Treeview:
-        """创建标准的结果表格Treeview"""
+        """创建标准的结果表格Treeview（带垂直滚动条，数据不足一屏时滚动条置灰）"""
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.BOTH, expand=True)
+
         columns = ('code', 'name', 'supertrend', 'vegas', 'bollingerbands',
                    'occross', 'volumeprofile', 'total')
-        tree = ttk.Treeview(parent, columns=columns, show='headings')
+        tree = ttk.Treeview(container, columns=columns, show='headings')
 
         tree.heading('code', text='代码')
         tree.heading('name', text='股票')
@@ -655,7 +642,25 @@ class StockFilterGUI:
         # 绑定选中事件更新总分趋势图
         tree.bind('<<TreeviewSelect>>', self._on_tree_select)
 
+        # 垂直滚动条：数据超过一屏时启用，不足时置灰
+        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        # 滚动条必须先打包，否则当tree列宽之和接近容器宽度时，
+        # tree会占满全部宽度，把滚动条挤压成0宽导致不可见
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 将滚动条引用存到tree上，方便刷新时联动置灰
+        tree._vsb = vsb
         return tree
+
+    def _refresh_tree_scrollbar(self, tree):
+        """根据当前内容是否超过一屏，启用或置灰滚动条"""
+        first, last = tree.yview()
+        if first == 0.0 and last == 1.0:
+            tree._vsb.state(['disabled'])
+        else:
+            tree._vsb.state(['!disabled'])
 
     def _populate_tree(self, tree, items):
         """填充Treeview数据"""
@@ -681,6 +686,8 @@ class StockFilterGUI:
             tree.insert('', tk.END, values=(
                 code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, total_str
             ), tags=(trend,))
+
+        self._refresh_tree_scrollbar(tree)
 
     def _on_tree_double_click(self, event):
         """
@@ -925,7 +932,7 @@ class StockFilterGUI:
         self._populate_tree(self.query_tree, self.query_list)
     
     def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
-        """检查Vegas是否通过筛选（多头排列且连续多头>=10天）"""
+        """检查Vegas是否通过筛选（多头排列且连续多头>=5天）"""
         vegas_df = vegas.get_stock_vegas(stock_code, date, days=800)
         if vegas_df is not None and not vegas_df.empty:
             if int(vegas_df.iloc[-1]['trend_direction']) != 1:
@@ -937,7 +944,7 @@ class StockFilterGUI:
                     bullish_streak += 1
                 else:
                     break
-            return bullish_streak >= 10
+            return bullish_streak >= 5
         return False
 
     def _check_vp_pass(self, stock_code: str, date: str) -> bool:

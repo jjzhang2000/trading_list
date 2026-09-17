@@ -10,7 +10,6 @@
 
 import os
 import sqlite3
-from pathlib import Path
 
 # ==================== 配置 ====================
 OUTPUT_DIR = r'.'

@@ -166,31 +166,3 @@ def run_kline_window(cmd_queue):
         traceback.print_exc()
         sys.stdout.flush()
         sys.exit(1)
-
-
-def main():
-    """主函数（独立运行模式）"""
-    try:
-        if len(sys.argv) < 2:
-            print("用法: python kline_standalone.py <队列名称>")
-            sys.exit(1)
-        
-        queue_name = sys.argv[1]
-        print(f"[DEBUG] 启动K线图窗口，队列: {queue_name}")
-        sys.stdout.flush()
-        
-        # 获取队列引用
-        cmd_queue = multiprocessing.Queue(queue_name)
-        
-        # 运行窗口
-        run_kline_window(cmd_queue)
-        
-    except Exception as e:
-        print(f"[ERROR] 发生异常: {e}")
-        traceback.print_exc()
-        sys.stdout.flush()
-        sys.exit(1)
-
-
-if __name__ == '__main__':
-    main()

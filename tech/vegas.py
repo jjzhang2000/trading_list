@@ -41,28 +41,41 @@ def calculate_vegas(df: pd.DataFrame) -> pd.DataFrame:
         - trend_direction = -1: 空头（close < EMA12 < EMA144 < EMA576）
         - trend_direction = 0: 震荡（其他情况）
     """
-    if df.empty or len(df) < 576:
+    if df.empty or len(df) < 144:
         return pd.DataFrame()
 
     df = df.copy()
 
     df['ema12'] = ta.ema(df['close'], length=12)
     df['ema144'] = ta.ema(df['close'], length=144)
-    df['ema576'] = ta.ema(df['close'], length=576)
+
+    # EMA576在数据不足576条时 ta.ema 会返回 None（而非NaN），
+    # 直接赋值会造成整列 None，导致后续比较 float > None 报错。
+    # 因此仅在数据足够时计算，否则将该列置为 NaN 并退化为仅判断两线。
+    if len(df) >= 576:
+        df['ema576'] = ta.ema(df['close'], length=576)
+        bullish_mask = (
+            (df['close'] > df['ema12']) &
+            (df['ema12'] > df['ema144']) &
+            (df['ema144'] > df['ema576'])
+        )
+        bearish_mask = (
+            (df['close'] < df['ema12']) &
+            (df['ema12'] < df['ema144']) &
+            (df['ema144'] < df['ema576'])
+        )
+    else:
+        df['ema576'] = float('nan')
+        bullish_mask = (
+            (df['close'] > df['ema12']) &
+            (df['ema12'] > df['ema144'])
+        )
+        bearish_mask = (
+            (df['close'] < df['ema12']) &
+            (df['ema12'] < df['ema144'])
+        )
 
     df['trend_direction'] = 0
-
-    bullish_mask = (
-        (df['close'] > df['ema12']) &
-        (df['ema12'] > df['ema144']) &
-        (df['ema144'] > df['ema576'])
-    )
-
-    bearish_mask = (
-        (df['close'] < df['ema12']) &
-        (df['ema12'] < df['ema144']) &
-        (df['ema144'] < df['ema576'])
-    )
 
     df.loc[bullish_mask, 'trend_direction'] = 1
     df.loc[bearish_mask, 'trend_direction'] = -1
@@ -96,7 +109,8 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[
     Note:
         EMA576需要足够的历史数据才能收敛到稳定值。
     """
-    MIN_DATA_REQUIRED = 800
+    # 至少需要144条数据计算EMA144；数据不足576条时EMA576为NaN，多头判断退化为仅两线
+    MIN_DATA_REQUIRED = 144
 
     df = get_stock_price_before_date(stock_code, end_date, limit=2000)
 
@@ -114,14 +128,14 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[
     return result
 
 
-def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: int = 10) -> pd.DataFrame:
+def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: int = 5) -> pd.DataFrame:
     """
     筛选指定日期Vegas通道为多头且连续多头天数>=min_bullish_days的股票
 
     Args:
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表
-        min_bullish_days: 要求连续多头排列的最少交易日天数，默认10天
+        min_bullish_days: 要求连续多头排列的最少交易日天数，默认5天
 
     Returns:
         DataFrame，包含列：stock_code, ema12, ema144, ema576, trend_direction

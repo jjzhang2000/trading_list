@@ -4,9 +4,6 @@ K线图窗口模块
 单窗口，只显示最新双击的股票K线图
 """
 
-import subprocess
-import sys
-import os
 import multiprocessing
 from typing import List, Dict
 from utils.logger import get_logger

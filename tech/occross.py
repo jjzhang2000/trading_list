@@ -93,7 +93,7 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
         end_date: 结束日期（YYYY-MM-DD格式）
         days: 计算天数，默认为50天
         period: 移动平均周期，默认为8
-        ma_type: 移动平均类型，默认为ema
+        ma_type: 移动平均类型，默认为tma
     
     Returns:
         DataFrame，包含列：date, occ_open, occ_close, trend_direction
@@ -127,7 +127,7 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
         date: 日期（YYYY-MM-DD格式）
         stock_codes: 股票代码列表
         period: 移动平均周期，默认为8
-        ma_type: 移动平均类型，默认为ema
+        ma_type: 移动平均类型，默认为tma
     
     Returns:
         DataFrame，包含列：stock_code, occ_open, occ_close, trend_direction
