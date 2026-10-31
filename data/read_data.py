@@ -8,7 +8,6 @@
 import sqlite3
 import pandas as pd
 from typing import Optional, List
-from datetime import datetime
 
 
 DB_PATH = r'.\data\stock_data.db'
@@ -176,6 +175,34 @@ def get_indicator(stock_code: str, date: str, column: str) -> Optional[int]:
         conn.close()
 
 
+def get_latest_indicators(stock_code: str) -> Optional[dict]:
+    """
+    获取指定股票在 stock_indicators 表中最新一条指标记录
+
+    Args:
+        stock_code: 股票代码（如：600000）
+
+    Returns:
+        字典，包含 date 及 5 个指标值（缺失为 None）；无记录返回 None
+    """
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT date, supertrend, vegas, bollingerbands, openclosecross, volumeprofile "
+            "FROM stock_indicators WHERE stock_code = ? "
+            "ORDER BY date DESC LIMIT 1",
+            (stock_code,)
+        )
+        result = cursor.fetchone()
+        if not result:
+            return None
+        cols = ['date', 'supertrend', 'vegas', 'bollingerbands', 'openclosecross', 'volumeprofile']
+        return dict(zip(cols, result))
+    finally:
+        conn.close()
+
+
 def get_latest_trading_dates(stock_code: str, limit: int = 2) -> List[str]:
     """
     获取指定股票最近的N个交易日日期（按日期降序）
@@ -196,6 +223,23 @@ def get_latest_trading_dates(stock_code: str, limit: int = 2) -> List[str]:
             (stock_code, limit)
         )
         return [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_latest_trading_date() -> Optional[str]:
+    """
+    获取全市场最新交易日日期（stock_daily 表中 date 的最大值）
+
+    Returns:
+        最新交易日日期字符串（YYYY-MM-DD格式）；无数据时返回None
+    """
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(date) FROM stock_daily")
+        result = cursor.fetchone()
+        return result[0] if result else None
     finally:
         conn.close()
 

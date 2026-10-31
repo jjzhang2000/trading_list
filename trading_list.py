@@ -29,7 +29,7 @@
     python trading_list.py -d 2025-03-07 -b 10.0 --update
 
 命令行参数：
-    -d, --date       筛选日期（YYYY-MM-DD格式，默认今天）
+    -d, --date       筛选日期（YYYY-MM-DD格式，默认使用数据库最新交易日）
     -b, --bandwidth  布林带开口率阈值（默认10.0）
     -p, --proxy      代理服务器地址
     --update         更新股票数据（默认跳过）
@@ -44,8 +44,8 @@ from datetime import datetime
 from typing import List, Optional
 
 from utils.logger import get_logger, get_log_dir
-from data.read_data import get_all_stock_codes, get_stock_name
-from data import extract_data, migrate_trades
+from data.read_data import get_all_stock_codes, get_stock_name, get_latest_trading_date
+from data import migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
 
 logger = get_logger(__name__)
@@ -251,7 +251,7 @@ def main():
     """主函数：解析命令行参数并执行筛选"""
     parser = argparse.ArgumentParser(description='股票筛选主程序')
     parser.add_argument('-d', '--date', type=str, default=None,
-                        help='筛选日期 (YYYY-MM-DD格式，默认为今天)')
+                        help='筛选日期 (YYYY-MM-DD格式，默认使用数据库最新交易日)')
     parser.add_argument('-b', '--bandwidth', type=float, default=10.0,
                         help='布林带开口率阈值 (默认: 10.0)')
     parser.add_argument('-p', '--proxy', type=str, default=None,
@@ -264,7 +264,8 @@ def main():
     if args.date:
         date = args.date
     else:
-        date = datetime.now().strftime('%Y-%m-%d')
+        # 默认使用数据库中最新的交易日作为筛选日期，避免「今天」晚于最新数据时窗口漂移
+        date = get_latest_trading_date() or datetime.now().strftime('%Y-%m-%d')
     
     result = run_filter(
         date, 

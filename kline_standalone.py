@@ -27,19 +27,19 @@ def run_kline_window(cmd_queue):
         import webview
         from kline_window import KLineAPI, get_kline_html
         
-        print(f"[DEBUG] 创建API实例...")
+        print("[DEBUG] 创建API实例...")
         sys.stdout.flush()
         
         # 创建 API 实例
         api = KLineAPI()
         
-        print(f"[DEBUG] 生成HTML...")
+        print("[DEBUG] 生成HTML...")
         sys.stdout.flush()
         
         # 生成 HTML
         html = get_kline_html()
         
-        print(f"[DEBUG] 创建webview窗口...")
+        print("[DEBUG] 创建webview窗口...")
         sys.stdout.flush()
         
         # 恢复上次保存的窗口位置和尺寸
@@ -57,7 +57,7 @@ def run_kline_window(cmd_queue):
             resizable=True
         )
         
-        print(f"[DEBUG] 设置回调...")
+        print("[DEBUG] 设置回调...")
         sys.stdout.flush()
         
         # 窗口加载完成标志
@@ -66,7 +66,7 @@ def run_kline_window(cmd_queue):
         # 设置窗口加载完成回调
         def on_loaded():
             nonlocal window_loaded
-            print(f"[DEBUG] K线图窗口已加载")
+            print("[DEBUG] K线图窗口已加载")
             sys.stdout.flush()
             window_loaded = True
             # 等待 JavaScript 完全初始化
@@ -90,12 +90,12 @@ def run_kline_window(cmd_queue):
         
         window.events.closing += on_closing
         
-        print(f"[DEBUG] 启动命令监听线程...")
+        print("[DEBUG] 启动命令监听线程...")
         sys.stdout.flush()
         
         # 命令监听函数
         def listen_commands():
-            print(f"[DEBUG] 开始监听命令队列...")
+            print("[DEBUG] 开始监听命令队列...")
             sys.stdout.flush()
             
             while True:
@@ -107,14 +107,14 @@ def run_kline_window(cmd_queue):
                         continue
                     
                     if cmd is None:
-                        print(f"[DEBUG] 收到退出信号")
+                        print("[DEBUG] 收到退出信号")
                         sys.stdout.flush()
                         break
                     
                     action = cmd.get('action')
                     
                     if action == 'close':
-                        print(f"[DEBUG] 收到关闭命令")
+                        print("[DEBUG] 收到关闭命令")
                         sys.stdout.flush()
                         window.destroy()
                         break
@@ -127,7 +127,7 @@ def run_kline_window(cmd_queue):
                         
                         # 等待窗口加载完成
                         if not window_loaded:
-                            print(f"[DEBUG] 等待窗口加载...")
+                            print("[DEBUG] 等待窗口加载...")
                             sys.stdout.flush()
                             for _ in range(10):
                                 time.sleep(0.1)
@@ -152,13 +152,13 @@ def run_kline_window(cmd_queue):
         cmd_thread = threading.Thread(target=listen_commands, daemon=True)
         cmd_thread.start()
         
-        print(f"[DEBUG] 启动webview事件循环...")
+        print("[DEBUG] 启动webview事件循环...")
         sys.stdout.flush()
         
         # 启动 webview 事件循环（阻塞）
         webview.start()
         
-        print(f"[DEBUG] webview事件循环结束")
+        print("[DEBUG] webview事件循环结束")
         sys.stdout.flush()
         
     except Exception as e:

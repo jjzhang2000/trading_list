@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date, save_indicator
+from data.read_data import get_stock_price_before_date, get_indicator, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -128,6 +128,29 @@ def get_stock_vegas(stock_code: str, end_date: str, days: int = 50) -> Optional[
     return result
 
 
+def _cache_vegas_pct(stock_code: str, date: str, close: float, ema144: float) -> Optional[int]:
+    """计算并缓存 Vegas 偏离度（(close-ema144)/ema144*100，保留整数）。"""
+    if close <= 0 or ema144 <= 0:
+        return None
+    pct = int(round((close - ema144) / ema144 * 100))
+    save_indicator(stock_code, date, VEGAS_COLUMN, pct)
+    return pct
+
+
+def get_vegas_value(stock_code: str, date: str) -> Optional[int]:
+    """获取 Vegas 偏离度（整数），优先读缓存，未命中则计算并缓存。"""
+    cached = get_indicator(stock_code, date, VEGAS_COLUMN)
+    if cached is not None:
+        return cached
+
+    vegas_df = get_stock_vegas(stock_code, date, days=50)
+    if vegas_df is None or vegas_df.empty:
+        return None
+
+    last_row = vegas_df.iloc[-1]
+    return _cache_vegas_pct(stock_code, date, last_row['close'], last_row['ema144'])
+
+
 def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: int = 5) -> pd.DataFrame:
     """
     筛选指定日期Vegas通道为多头且连续多头天数>=min_bullish_days的股票
@@ -160,12 +183,8 @@ def filter_bullish_stocks(date: str, stock_codes: List[str], min_bullish_days: i
                 else:
                     break
 
-            # 缓存 vegas_above_pct 到数据库
-            close_price = last_row.get('close', 0)
-            ema144 = last_row['ema144']
-            if close_price > 0 and ema144 > 0:
-                vegas_pct = (close_price - ema144) / ema144 * 100
-                save_indicator(code, date, VEGAS_COLUMN, round(vegas_pct))
+            # 缓存 vegas 偏离度到数据库
+            _cache_vegas_pct(code, date, last_row.get('close', 0), last_row['ema144'])
 
             if last_row['trend_direction'] == 1 and bullish_streak >= min_bullish_days:
                 results.append({

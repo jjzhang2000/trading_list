@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date, save_indicator
+from data.read_data import get_stock_price_before_date, get_indicator, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -101,6 +101,28 @@ def get_stock_bollinger_band(stock_code: str, end_date: str, days: int = 50,
     return result
 
 
+def _cache_bb_value(stock_code: str, date: str, bandwidth: float) -> Optional[int]:
+    """计算并缓存布林带开口率（整数化 bandwidth）。"""
+    if pd.notna(bandwidth):
+        val = int(round(bandwidth))
+        save_indicator(stock_code, date, BB_COLUMN, val)
+        return val
+    return None
+
+
+def get_bb_value(stock_code: str, date: str) -> Optional[int]:
+    """获取布林带开口率（整数），优先读缓存，未命中则计算并缓存。"""
+    cached = get_indicator(stock_code, date, BB_COLUMN)
+    if cached is not None:
+        return cached
+
+    bb_df = get_stock_bollinger_band(stock_code, date, days=50)
+    if bb_df is None or bb_df.empty:
+        return None
+
+    return _cache_bb_value(stock_code, date, bb_df.iloc[-1]['bandwidth'])
+
+
 def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: float,
                                period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
     """
@@ -132,8 +154,7 @@ def filter_stocks_by_bandwidth(date: str, stock_codes: List[str], threshold: flo
             bandwidth = last_row['bandwidth']
 
             # 缓存带宽到数据库
-            if pd.notna(bandwidth):
-                save_indicator(code, date, BB_COLUMN, round(bandwidth))
+            _cache_bb_value(code, date, bandwidth)
 
             if bandwidth > threshold:
                 results.append({

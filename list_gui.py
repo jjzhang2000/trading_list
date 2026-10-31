@@ -63,7 +63,7 @@ from matplotlib.dates import WeekdayLocator, MO, DateFormatter
 
 from data import init_db, extract_data, read_data, migrate_trades
 from tech import supertrend, vegas, bollingerband, occross, vp_slope, trend_score
-from data.read_data import save_indicator, get_indicator, get_latest_trading_dates
+from data.read_data import get_latest_trading_dates, get_latest_indicators, get_latest_trading_date
 from utils.logger import get_logger
 from utils.window_state import load_window_state, save_window_state
 from kline_window import KLineWindow
@@ -78,54 +78,27 @@ def get_holding_codes() -> List[str]:
     return codes
 
 
-def _compute_vegas(stock_code: str, date: str) -> int:
-    """计算Vegas指标值并缓存"""
-    vegas_df = vegas.get_stock_vegas(stock_code, date, days=50)
-    if vegas_df is not None and not vegas_df.empty:
-        lr = vegas_df.iloc[-1]
-        vp = (lr['close'] - lr['ema144']) / lr['ema144'] * 100
-        vp = round(vp)
-        save_indicator(stock_code, date, 'vegas', vp)
-        return vp
-    return 0
+def _compute_er(stock_code: str, date: str, period: int = 10) -> Optional[float]:
+    """计算效率系数 ER（Efficiency Ratio），仅用于展示，不参与筛选、不计入总分。
 
+    Args:
+        stock_code: 股票代码
+        date: 截止日期（YYYY-MM-DD格式）
+        period: ER 窗口，默认10个交易日
 
-def _compute_bb(stock_code: str, date: str) -> int:
-    """计算布林带指标值并缓存"""
-    bb_df = bollingerband.get_stock_bollinger_band(stock_code, date, days=50)
-    if bb_df is not None and not bb_df.empty:
-        bw = bb_df.iloc[-1]['bandwidth']
-        if hasattr(bw, '__float__') and bw == bw:
-            bw = round(bw)
-            save_indicator(stock_code, date, 'bollingerbands', bw)
-            return bw
-    return 0
-
-
-def _compute_occ(stock_code: str, date: str) -> int:
-    """计算OCC指标值并缓存"""
-    occ_df = occross.get_stock_occ(stock_code, date, days=50)
-    if occ_df is not None and not occ_df.empty:
-        lr = occ_df.iloc[-1]
-        if lr['occ_open'] > 0:
-            op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
-            op = round(op)
-            save_indicator(stock_code, date, 'openclosecross', op)
-            return op
-    return 0
-
-
-def _compute_vp(stock_code: str, date: str) -> int:
-    """计算VP Slope指标值并缓存"""
-    vp_df = vp_slope.get_stock_slope(stock_code, date, days=150)
-    if vp_df is not None and not vp_df.empty:
-        lr = vp_df.iloc[-1]
-        if lr['close'] > 0:
-            vpp = lr['slope_short'] / lr['close'] * 1000
-            vpp = round(vpp)
-            save_indicator(stock_code, date, 'volumeprofile', vpp)
-            return vpp
-    return 0
+    Returns:
+        有方向 ER 值（-1~1，正值表示上涨、负值表示下跌），数据不足返回 None
+    """
+    df = read_data.get_stock_price_before_date(stock_code, date, limit=period + 1)
+    if df is None or len(df) < period + 1:
+        return None
+    closes = df['close'].astype(float).tolist()
+    # 带方向的净位移：不取绝对值，符号即涨跌方向
+    net_change = closes[-1] - closes[-(period + 1)]
+    volatility = sum(abs(closes[i] - closes[i - 1]) for i in range(len(closes) - period, len(closes)))
+    if volatility == 0:
+        return 0.0
+    return net_change / volatility
 
 
 class StoppableThread(threading.Thread):
@@ -190,6 +163,9 @@ class StockFilterGUI:
         self._score_token = 0  # 总分趋势图请求token，用于丢弃过期结果
         
         self.setup_ui()
+        
+        # 启动时用最新保存的指标数据填充持仓/历史tab，无需等待筛选
+        self.root.after(0, self.load_startup_holdings_history)
         
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         atexit.register(self.cleanup)
@@ -611,35 +587,35 @@ class StockFilterGUI:
         container.pack(fill=tk.BOTH, expand=True)
 
         columns = ('code', 'name', 'supertrend', 'vegas', 'bollingerbands',
-                   'occross', 'volumeprofile', 'total')
+                   'occross', 'volumeprofile', 'er', 'total')
         tree = ttk.Treeview(container, columns=columns, show='headings')
 
         tree.heading('code', text='代码')
         tree.heading('name', text='股票')
-        tree.heading('supertrend', text='Supertrend')
+        tree.heading('supertrend', text='ST')
         tree.heading('vegas', text='Vegas')
-        tree.heading('bollingerbands', text='BollingerBands')
-        tree.heading('occross', text='O/C Cross')
-        tree.heading('volumeprofile', text='VolumeProfile')
+        tree.heading('bollingerbands', text='BB')
+        tree.heading('occross', text='OCC')
+        tree.heading('volumeprofile', text='VP')
+        tree.heading('er', text='ER')
         tree.heading('total', text='总分')
 
-        tree.column('code', width=70, anchor=tk.CENTER)
-        tree.column('name', width=100, anchor=tk.W)
-        tree.column('supertrend', width=90, anchor=tk.CENTER)
-        tree.column('vegas', width=80, anchor=tk.CENTER)
-        tree.column('bollingerbands', width=100, anchor=tk.CENTER)
-        tree.column('occross', width=80, anchor=tk.CENTER)
-        tree.column('volumeprofile', width=100, anchor=tk.CENTER)
-        tree.column('total', width=60, anchor=tk.CENTER)
+        tree.column('code', width=60, anchor=tk.CENTER)
+        tree.column('name', width=90, anchor=tk.W)
+        tree.column('supertrend', width=55, anchor=tk.CENTER)
+        tree.column('vegas', width=55, anchor=tk.CENTER)
+        tree.column('bollingerbands', width=55, anchor=tk.CENTER)
+        tree.column('occross', width=55, anchor=tk.CENTER)
+        tree.column('volumeprofile', width=55, anchor=tk.CENTER)
+        tree.column('er', width=55, anchor=tk.CENTER)
+        tree.column('total', width=55, anchor=tk.CENTER)
 
         # 总分升降对应的字体颜色标签
         tree.tag_configure('up', foreground='green')
         tree.tag_configure('down', foreground='red')
         tree.tag_configure('flat', foreground='black')
 
-        # 绑定双击事件打开K线图
-        tree.bind('<Double-1>', self._on_tree_double_click)
-        # 绑定选中事件更新总分趋势图
+        # 绑定单击选中事件：同时更新总分趋势图并打开K线图窗口
         tree.bind('<<TreeviewSelect>>', self._on_tree_select)
 
         # 垂直滚动条：数据超过一屏时启用，不足时置灰
@@ -673,6 +649,7 @@ class StockFilterGUI:
             bb_val = item.get('bollingerbands', '--')
             occ_val = item.get('occross', '--')
             vp_val = item.get('volumeprofile', '--')
+            er_val = item.get('er')
             total = item.get('total', '--')
 
             supertrend_str = str(supertrend_val) if supertrend_val != '--' else '--'
@@ -680,50 +657,22 @@ class StockFilterGUI:
             bb_str = str(bb_val) if bb_val != '--' else '--'
             occ_str = str(occ_val) if occ_val != '--' else '--'
             vp_str = str(vp_val) if vp_val != '--' else '--'
+            er_str = f"{er_val * 100:.1f}" if isinstance(er_val, (int, float)) else '--'
             total_str = str(total) if isinstance(total, (int, float)) else str(total)
 
             trend = item.get('trend', 'flat')
             tree.insert('', tk.END, values=(
-                code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, total_str
+                code, name, supertrend_str, vegas_str, bb_str, occ_str, vp_str, er_str, total_str
             ), tags=(trend,))
 
         self._refresh_tree_scrollbar(tree)
 
-    def _on_tree_double_click(self, event):
-        """
-        Treeview 双击事件处理：打开K线图窗口
-        
-        Args:
-            event: 双击事件
-        """
-        tree = event.widget
-        selection = tree.selection()
-        if not selection:
-            return
-        
-        item = tree.item(selection[0])
-        values = item['values']
-        if not values or len(values) < 2:
-            return
-        
-        stock_code = str(values[0])
-        stock_name = str(values[1])
-        
-        logger.info(f"双击股票: {stock_code} - {stock_name}")
-        
-        # 创建或更新K线图窗口
-        if self.kline_window is None:
-            self.kline_window = KLineWindow()
-        
-        # 直接调用 show()，内部会处理线程
-        self.kline_window.show(stock_code, stock_name)
-
     def _on_tree_select(self, event):
         """
-        Treeview 选中事件处理：在图表框显示该股票近30个交易日的指标总分变化曲线
+        Treeview 选中事件处理：单击股票统一触发两项展示
 
-        Args:
-            event: 选中事件
+        - 下方图表框显示该股票近30个交易日的指标总分变化曲线
+        - K线图窗口显示该股票的各项技术曲线（K线、Vegas、布林带、AMA、VP Slope）
         """
         tree = event.widget
         selection = tree.selection()
@@ -737,7 +686,14 @@ class StockFilterGUI:
 
         stock_code = str(values[0])
         stock_name = str(values[1])
+
+        # 下方图表框显示总分变化曲线
         self._show_score_history(stock_code, stock_name)
+
+        # K线图窗口显示各项技术曲线
+        if self.kline_window is None:
+            self.kline_window = KLineWindow()
+        self.kline_window.show(stock_code, stock_name)
 
     def _show_score_history(self, stock_code: str, stock_name: str):
         """
@@ -931,6 +887,52 @@ class StockFilterGUI:
         self._populate_tree(self.history_tree, self.history_list)
         self._populate_tree(self.query_tree, self.query_list)
     
+    def _build_items_from_saved(self, codes: List[str], code_to_name: dict) -> List[dict]:
+        """从 stock_indicators 表最新保存的指标数据构建展示项，按总分降序，不重新计算指标"""
+        items = []
+        for code in codes:
+            row = get_latest_indicators(code)
+            if row is None:
+                continue
+            st = row.get('supertrend') or 0
+            vg = row.get('vegas') or 0
+            bb = row.get('bollingerbands') or 0
+            oc = row.get('openclosecross') or 0
+            vp = row.get('volumeprofile') or 0
+            items.append({
+                'code': code,
+                'name': code_to_name.get(code, code),
+                'supertrend': st,
+                'vegas': vg,
+                'bollingerbands': bb,
+                'occross': oc,
+                'volumeprofile': vp,
+                'er': None,
+                'total': st + vg + bb + oc + vp,
+            })
+        items.sort(key=lambda x: x['total'], reverse=True)
+        return items
+
+    def load_startup_holdings_history(self):
+        """程序启动时加载持仓/历史两个tab的最新保存指标数据，无需等待筛选"""
+        try:
+            holding_codes = set(get_holding_codes())
+            closed_codes = set(migrate_trades.get_closed_position_codes())
+            code_to_name = {}
+            for code, name in read_data.get_all_stock_codes_with_names():
+                code_to_name[code] = name or code
+        except Exception as e:
+            logger.warning(f"启动加载持仓/历史失败: {e}")
+            return
+
+        self.holding_list = self._build_items_from_saved(
+            [c for c in sorted(holding_codes)], code_to_name)
+        history_codes = [c for c in sorted(closed_codes) if c not in holding_codes]
+        self.history_list = self._build_items_from_saved(history_codes, code_to_name)
+
+        self._populate_tree(self.holding_tree, self.holding_list)
+        self._populate_tree(self.history_tree, self.history_list)
+
     def _check_vegas_pass(self, stock_code: str, date: str) -> bool:
         """检查Vegas是否通过筛选（多头排列且连续多头>=5天）"""
         vegas_df = vegas.get_stock_vegas(stock_code, date, days=800)
@@ -974,24 +976,19 @@ class StockFilterGUI:
             messagebox.showwarning("警告", "请输入股票代码！", parent=self.root)
             return
 
-        date = datetime.now().strftime('%Y-%m-%d')
+        date = get_latest_trading_date() or datetime.now().strftime('%Y-%m-%d')
 
         name = self._get_stock_name(stock_code)
         if name is None:
             messagebox.showwarning("警告", f"未找到股票 {stock_code}！", parent=self.root)
             return
 
-        def get_or_compute(col, compute_fn):
-            v = get_indicator(stock_code, date, col)
-            if v is not None:
-                return v
-            return compute_fn()
-
-        st_val = get_or_compute('supertrend', lambda: round(supertrend._get_st_signal(stock_code, date) or 0))
-        vegas_val = get_or_compute('vegas', lambda: _compute_vegas(stock_code, date))
-        bb_val = get_or_compute('bollingerbands', lambda: _compute_bb(stock_code, date))
-        occ_val = get_or_compute('openclosecross', lambda: _compute_occ(stock_code, date))
-        vp_val = get_or_compute('volumeprofile', lambda: _compute_vp(stock_code, date))
+        st_val = round(supertrend._get_st_signal(stock_code, date) or 0)
+        vegas_val = vegas.get_vegas_value(stock_code, date) or 0
+        bb_val = bollingerband.get_bb_value(stock_code, date) or 0
+        occ_val = occross.get_occ_value(stock_code, date) or 0
+        vp_val = vp_slope.get_vp_value(stock_code, date) or 0
+        er_val = _compute_er(stock_code, date)
 
         total = st_val + vegas_val + bb_val + occ_val + vp_val
 
@@ -1003,6 +1000,7 @@ class StockFilterGUI:
             'bollingerbands': bb_val,
             'occross': occ_val,
             'volumeprofile': vp_val,
+            'er': er_val,
             'total': total,
             'trend': self._get_total_trend(stock_code, total),
         }
@@ -1098,13 +1096,15 @@ class StockFilterGUI:
                     'bollingerbands': row.get('bollingerbands', 0),
                     'occross': row.get('openclosecross', 0),
                     'volumeprofile': row.get('volumeprofile', 0),
+                    'er': _compute_er(row['stock_code'], date),
                     'total': row['strength_score'],
                 })
             for item in items:
                 item['trend'] = self._get_total_trend(item['code'], item['total'])
             return items
         else:
-            return [{'code': c, 'name': code_to_name.get(c, ''), 'total': 0, 'trend': 'flat'}
+            return [{'code': c, 'name': code_to_name.get(c, ''), 'er': _compute_er(c, date),
+                     'total': 0, 'trend': 'flat'}
                     for c in sorted(codes)]
 
     def _compute_indicators(self, codes: list, date: str):
@@ -1114,42 +1114,18 @@ class StockFilterGUI:
         self.root.after(0, lambda n=len(codes): self.log_result(f"补算 {n} 只股票指标..."))
         for hcode in codes:
             supertrend._get_st_signal(hcode, date)
-            vegas_df = vegas.get_stock_vegas(hcode, date, days=50)
-            if vegas_df is not None and not vegas_df.empty:
-                lr = vegas_df.iloc[-1]
-                vp = (lr['close'] - lr['ema144']) / lr['ema144'] * 100
-                save_indicator(hcode, date, 'vegas', round(vp))
-            bb_df = bollingerband.get_stock_bollinger_band(hcode, date, days=50)
-            if bb_df is not None and not bb_df.empty:
-                bw = bb_df.iloc[-1]['bandwidth']
-                if hasattr(bw, '__float__') and bw == bw:
-                    save_indicator(hcode, date, 'bollingerbands', round(bw))
-            occ_df = occross.get_stock_occ(hcode, date, days=50)
-            if occ_df is not None and not occ_df.empty:
-                lr = occ_df.iloc[-1]
-                if lr['occ_open'] > 0:
-                    op = (lr['occ_close'] - lr['occ_open']) / lr['occ_open'] * 1000
-                    save_indicator(hcode, date, 'openclosecross', round(op))
-            vp_df = vp_slope.get_stock_slope(hcode, date, days=150)
-            if vp_df is not None and not vp_df.empty:
-                lr = vp_df.iloc[-1]
-                if lr['close'] > 0:
-                    vpp = lr['slope_short'] / lr['close'] * 1000
-                    save_indicator(hcode, date, 'volumeprofile', round(vpp))
+            vegas.get_vegas_value(hcode, date)
+            bollingerband.get_bb_value(hcode, date)
+            occross.get_occ_value(hcode, date)
+            vp_slope.get_vp_value(hcode, date)
 
     def _compute_total_for_date(self, stock_code: str, date: str) -> int:
         """计算某股票在指定日期的5指标总分（优先读缓存，未命中则计算并缓存）"""
-        def get_or_compute(col, compute_fn):
-            v = get_indicator(stock_code, date, col)
-            if v is not None:
-                return v
-            return compute_fn()
-
-        st_val = get_or_compute('supertrend', lambda: round(supertrend._get_st_signal(stock_code, date) or 0))
-        vegas_val = get_or_compute('vegas', lambda: _compute_vegas(stock_code, date))
-        bb_val = get_or_compute('bollingerbands', lambda: _compute_bb(stock_code, date))
-        occ_val = get_or_compute('openclosecross', lambda: _compute_occ(stock_code, date))
-        vp_val = get_or_compute('volumeprofile', lambda: _compute_vp(stock_code, date))
+        st_val = round(supertrend._get_st_signal(stock_code, date) or 0)
+        vegas_val = vegas.get_vegas_value(stock_code, date) or 0
+        bb_val = bollingerband.get_bb_value(stock_code, date) or 0
+        occ_val = occross.get_occ_value(stock_code, date) or 0
+        vp_val = vp_slope.get_vp_value(stock_code, date) or 0
         return st_val + vegas_val + bb_val + occ_val + vp_val
 
     def _get_total_trend(self, stock_code: str, current_total: int) -> str:
@@ -1200,7 +1176,7 @@ class StockFilterGUI:
 
         def run():
             try:
-                date = datetime.now().strftime('%Y-%m-%d')
+                date = get_latest_trading_date() or datetime.now().strftime('%Y-%m-%d')
                 all_codes = [code for code, name in self.stock_list]
                 code_to_name = {code: name for code, name in self.stock_list}
 
@@ -1270,7 +1246,7 @@ class StockFilterGUI:
 def main():
     """主函数：创建Tkinter窗口并启动GUI"""
     root = tk.Tk()
-    app = StockFilterGUI(root)
+    StockFilterGUI(root)
     root.mainloop()
 
 

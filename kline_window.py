@@ -106,6 +106,9 @@ def get_kline_html() -> str:
                 <input type="checkbox" id="bollinger-checkbox"> Bollinger Bands
                 <span id="bollinger-bandwidth" class="bollinger-bandwidth"></span>
             </label>
+            <label class="vegas-toggle">
+                <input type="checkbox" id="ama-checkbox"> AMA
+            </label>
             <span class="vp-slope-display">VP Slope <span id="vp-slope-value"></span></span>
         </div>
     </div>
@@ -127,8 +130,10 @@ def get_kline_html() -> str:
         let bbMiddleSeries = null;
         let bbLowerSeries = null;
         let currentBollingerData = null;
+        let amaSeries = null;
+        let currentAmaData = null;
         let currentVpSlopeData = null;
-        let uiState = { vegas: false, bollinger: false, visibleFrom: null, visibleTo: null };
+        let uiState = { vegas: false, bollinger: false, ama: false, visibleFrom: null, visibleTo: null };
         let rangeSaveTimer = null;
         
         function initChart() {
@@ -361,6 +366,61 @@ def get_kline_html() -> str:
             }
         }
         
+        function calcAMA(closes, erPeriod, fastPeriod, slowPeriod) {
+            const result = new Array(closes.length).fill(null);
+            const fastSC = 2 / (fastPeriod + 1);
+            const slowSC = 2 / (slowPeriod + 1);
+            let ama = null;
+            for (let i = erPeriod; i < closes.length; i++) {
+                // 效率系数 ER = 价格位移 / 价格路径总长度（趋势越强越接近1）
+                const change = Math.abs(closes[i] - closes[i - erPeriod]);
+                let volatility = 0;
+                for (let j = i - erPeriod + 1; j <= i; j++) {
+                    volatility += Math.abs(closes[j] - closes[j - 1]);
+                }
+                const er = volatility === 0 ? 0 : change / volatility;
+                // 平滑常数在快慢平滑之间随 ER 动态插值
+                const sc = Math.pow(er * (fastSC - slowSC) + slowSC, 2);
+                if (ama === null) {
+                    // 用截至当前的平均价作为递归起点
+                    let sum = 0;
+                    for (let j = 0; j <= i; j++) sum += closes[j];
+                    ama = sum / (i + 1);
+                }
+                ama = ama + sc * (closes[i] - ama);
+                result[i] = ama;
+            }
+            return result;
+        }
+        
+        function updateAmaSeries() {
+            if (!chart) return;
+            const checked = document.getElementById('ama-checkbox').checked;
+            
+            if (checked && currentAmaData) {
+                if (!amaSeries) {
+                    amaSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: 'rgba(186, 85, 211, 0.8)',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                }
+                
+                const dates = currentAmaData.dates;
+                const data = [];
+                for (let i = 0; i < dates.length; i++) {
+                    if (currentAmaData.ama[i] != null) {
+                        data.push({ time: dates[i], value: currentAmaData.ama[i] });
+                    }
+                }
+                amaSeries.setData(data);
+            } else {
+                if (amaSeries) amaSeries.setData([]);
+            }
+        }
+        
         function timeToKey(time) {
             if (typeof time === 'string') return time;
             if (time && time.year !== undefined) {
@@ -449,6 +509,7 @@ def get_kline_html() -> str:
                 window.pywebview.api.save_ui_state({
                     vegas: document.getElementById('vegas-checkbox').checked,
                     bollinger: document.getElementById('bollinger-checkbox').checked,
+                    ama: document.getElementById('ama-checkbox').checked,
                     visibleFrom: uiState.visibleFrom || null,
                     visibleTo: uiState.visibleTo || null,
                 });
@@ -544,6 +605,13 @@ def get_kline_html() -> str:
                     updateBollingerSeries();
                     updateBollingerBandwidth(null);
                     
+                    // 计算AMA自适应均线数据（仅用于展示，不参与筛选）
+                    currentAmaData = {
+                        ama: calcAMA(closes, 10, 2, 30),
+                        dates: result.map(d => d.date),
+                    };
+                    updateAmaSeries();
+                    
                     // 计算Volume Profile Slope数据（slope_long周期100，slope_short周期10，均转为相对收盘价的百分比）
                     const dates = result.map(d => d.date);
                     const slopeLong = calcLinregSlope(closes, 100);
@@ -598,16 +666,19 @@ def get_kline_html() -> str:
                 if (state) {
                     uiState.vegas = !!state.vegas;
                     uiState.bollinger = !!state.bollinger;
+                    uiState.ama = !!state.ama;
                     uiState.visibleFrom = state.visibleFrom || null;
                     uiState.visibleTo = state.visibleTo || null;
                     if (state.vegas) document.getElementById('vegas-checkbox').checked = true;
                     if (state.bollinger) document.getElementById('bollinger-checkbox').checked = true;
+                    if (state.ama) document.getElementById('ama-checkbox').checked = true;
                 }
             } catch (e) {
                 console.error('加载UI状态失败:', e);
             }
             updateVegasSeries();
             updateBollingerSeries();
+            updateAmaSeries();
         })();
         
         // Vegas复选框切换事件
@@ -618,6 +689,11 @@ def get_kline_html() -> str:
         // Bollinger Bands复选框切换事件
         document.getElementById('bollinger-checkbox').addEventListener('change', () => {
             updateBollingerSeries();
+            saveUiState();
+        });
+        // AMA自适应均线复选框切换事件
+        document.getElementById('ama-checkbox').addEventListener('change', () => {
+            updateAmaSeries();
             saveUiState();
         });
     </script>
@@ -633,12 +709,13 @@ class KLineAPI:
         获取K线窗口UI状态（复选框选中状态与可视日期范围）
         
         Returns:
-            包含 vegas、bollinger 复选框状态及 visibleFrom、visibleTo 的字典
+            包含 vegas、bollinger、ama 复选框状态及 visibleFrom、visibleTo 的字典
         """
         state = load_window_state('kline_ui') or {}
         return {
             'vegas': bool(state.get('vegas', False)),
             'bollinger': bool(state.get('bollinger', False)),
+            'ama': bool(state.get('ama', False)),
             'visibleFrom': state.get('visibleFrom'),
             'visibleTo': state.get('visibleTo'),
         }
@@ -648,11 +725,12 @@ class KLineAPI:
         保存K线窗口UI状态
         
         Args:
-            state: 包含 vegas、bollinger、visibleFrom、visibleTo 的字典
+            state: 包含 vegas、bollinger、ama、visibleFrom、visibleTo 的字典
         """
         save_window_state('kline_ui', {
             'vegas': bool(state.get('vegas', False)),
             'bollinger': bool(state.get('bollinger', False)),
+            'ama': bool(state.get('ama', False)),
             'visibleFrom': state.get('visibleFrom'),
             'visibleTo': state.get('visibleTo'),
         })

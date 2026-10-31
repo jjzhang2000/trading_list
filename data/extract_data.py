@@ -7,12 +7,14 @@
 
 import os
 import sys
-import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
 import time
 import json
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple
+
+import pandas as pd
+import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -35,7 +37,6 @@ class RealAdjustFactorFetcher:
         
     def _init_session(self):
         """初始化HTTP会话"""
-        import requests
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -477,8 +478,6 @@ def update_all_stock_data(stock_list: List[tuple], start_date: str, end_date: st
 
 def get_sh_etf_list():
     """获取上证ETF指数代码和名称列表（5开头）"""
-    import requests
-    
     logger.info("尝试从新浪财经API获取上证ETF列表...")
     
     headers = {
@@ -574,8 +573,6 @@ def get_sh_etf_list():
 
 def get_sh_a_stock_list():
     """获取上证A股股票和ETF指数代码和名称列表（60开头股票 + 5开头ETF）"""
-    import requests
-    
     logger.info("尝试从新浪财经API获取股票列表...")
     try:
         url = 'http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData'
@@ -660,14 +657,6 @@ def main():
     if args.proxy:
         logger.info(f"代理服务器: {args.proxy}")
     logger.info("=" * 70)
-    
-    try:
-        import requests
-        logger.info("依赖检查通过")
-    except ImportError as e:
-        logger.error(f"缺少依赖: {e}")
-        logger.info("请运行: pip install requests pandas numpy")
-        return
     
     create_database(DB_PATH)
     

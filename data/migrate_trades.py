@@ -18,6 +18,7 @@
 """
 
 import os
+import re
 import sys
 import sqlite3
 from typing import List, Optional, Tuple
@@ -102,6 +103,23 @@ def _to_number(value) -> Optional[float]:
         return None
 
 
+_BUSINESS_NAME_REGEX = re.compile(r'^(证券买入|证券卖出)\((.+)\)$')
+
+
+def _extract_stock_name_from_business(business_name: Optional[str]) -> Optional[str]:
+    """从业务名称提取内嵌的股票名称，如「证券买入(凤凰传媒)」→「凤凰传媒」。
+
+    仅识别「证券买入」「证券卖出」后带括号的格式；括号内为「临时」或非该格式时返回 None。
+    """
+    if not business_name:
+        return None
+    match = _BUSINESS_NAME_REGEX.match(business_name)
+    if not match:
+        return None
+    name = match.group(2)
+    return None if name == '临时' else name
+
+
 def _normalize_row(row, account: str, name_code_map: dict) -> Optional[Tuple]:
     """将一行原始数据归一化为统一字段，返回 None 表示跳过（缺日期）"""
     trade_date = _to_date_str(row.get('成交日期'))
@@ -115,6 +133,14 @@ def _normalize_row(row, account: str, name_code_map: dict) -> Optional[Tuple]:
     # 证券代码为空时，从证券名称反查 stock_info 补全
     if stock_code is None and stock_name is not None:
         stock_code = name_code_map.get(stock_name)
+
+    # 业务名称内嵌股票名称（如「证券买入(凤凰传媒)」）时统一清理括号，
+    # 并在证券代码仍为空时用内嵌名称反查补全
+    embedded_name = _extract_stock_name_from_business(business_name)
+    if embedded_name is not None:
+        business_name = business_name.split('(', 1)[0]
+        if stock_code is None:
+            stock_code = name_code_map.get(embedded_name)
 
     trade_price = _to_number(row.get('成交价格'))
     trade_quantity = _to_number(row.get('成交数量'))

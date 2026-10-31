@@ -23,7 +23,8 @@ trading_list/
 │   ├── extract_data.py   # 新浪API数据获取
 │   ├── init_db.py        # 数据库初始化
 │   ├── read_data.py      # 数据库读取
-│   └── batch_fetch.py    # 批量数据更新
+│   ├── batch_fetch.py    # 批量数据更新
+│   └── migrate_trades.py # 交易流水迁移/清洗
 └── utils/
     ├── logger.py         # 日志模块
     └── window_state.py   # 窗口位置/尺寸持久化
@@ -38,7 +39,7 @@ python list_gui.py
 # CLI
 python trading_list.py
 
-# 指定日期
+# 指定日期（默认使用数据库最新交易日）
 python trading_list.py -d 2025-03-07
 
 # 更新数据
@@ -129,7 +130,9 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50) -> Opti
 2. **数据库**：SQLite，5年历史数据
 3. **提取性能**：数据提取使用并发下载（默认3线程），日常增量更新只拉取最近50条数据判断后增量写入
 4. **右键临时买卖**：持仓tab右键卖出、股票/ETF/历史tab右键买入，按最新收盘价写入业务名带"(临时)"的流水；迁移正式交易流水时自动删除全部临时记录
-5. **无单元测试**：依赖手动测试
+5. **筛选日期**：筛选/查询默认取数据库最新交易日（`get_latest_trading_date()`，即 `stock_daily` 最大日期），而非「今天」
+6. **交易流水清洗**：`migrate_trades.py` 的 `_normalize_row` 无条件清理 `business_name` 中嵌入的股票名（`证券买入(股票名)`/`证券卖出(股票名)` → 删除括号与股票名）；`证券代码` 为空时反查代码补全；插入前去重避免重复导入
+7. **无单元测试**：依赖手动测试
 
 ### Vegas通道筛选
 
@@ -142,6 +145,22 @@ def get_stock_supertrend(stock_code: str, end_date: str, days: int = 50) -> Opti
   - `144 ~ 575` 条：退化为两线判断 `close > EMA12 > EMA144`（不判断EMA576）
   - `>= 576` 条：三线完整判断
 - **注意**：`ta.ema` 在数据不足周期时返回 `None` 而非 NaN，直接比较会报 `'float' > 'NoneType'`，需按上述边界条件判断后再计算对应EMA线
+
+### 指标取值约定（cache-first）
+
+每个技术指标模块（supertrend/vegas/bollingerband/occross/vp_slope）是「指标派生值 + 缓存」的单一来源（single source of truth），对外暴露 cache-first 的取值接口：优先读 `stock_indicators` 缓存，未命中则计算指标、派生值并写缓存。
+
+- 派生值统一由 `save_indicator` 落库，值 clamp 到 [-100, 100]
+- filter 筛选、GUI 展示、总分计算三处复用同一 getter，不得重复实现派生或缓存逻辑
+- 各模块列名用 `*_COLUMN` 常量定义，与 getter 对应关系：
+
+| 模块 | 列名常量 | 取值接口 |
+| --- | --- | --- |
+| supertrend.py | `ST_COLUMN='supertrend'` | `_get_st_signal(stock_code, date)` |
+| vegas.py | `VEGAS_COLUMN='vegas'` | `get_vegas_value(stock_code, date)` |
+| bollingerband.py | `BB_COLUMN='bollingerbands'` | `get_bb_value(stock_code, date)` |
+| occross.py | `OCC_COLUMN='openclosecross'` | `get_occ_value(stock_code, date)` |
+| vp_slope.py | `VP_COLUMN='volumeprofile'` | `get_vp_value(stock_code, date)` |
 
 ### 综合评分（5指标加总）
 

@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date, save_indicator
+from data.read_data import get_stock_price_before_date, get_indicator, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -118,6 +118,29 @@ def get_stock_occ(stock_code: str, end_date: str, days: int = 50,
     return result
 
 
+def _cache_occ_value(stock_code: str, date: str, occ_open: float, occ_close: float) -> Optional[int]:
+    """计算并缓存 OCC 偏离度（(occ_close-occ_open)/occ_open*1000，保留整数）。"""
+    if occ_open <= 0:
+        return None
+    pct = int(round((occ_close - occ_open) / occ_open * 1000))
+    save_indicator(stock_code, date, OCC_COLUMN, pct)
+    return pct
+
+
+def get_occ_value(stock_code: str, date: str) -> Optional[int]:
+    """获取 OCC 偏离度（整数），优先读缓存，未命中则计算并缓存。"""
+    cached = get_indicator(stock_code, date, OCC_COLUMN)
+    if cached is not None:
+        return cached
+
+    occ_df = get_stock_occ(stock_code, date, days=50)
+    if occ_df is None or occ_df.empty:
+        return None
+
+    last_row = occ_df.iloc[-1]
+    return _cache_occ_value(stock_code, date, last_row['occ_open'], last_row['occ_close'])
+
+
 def filter_bullish_stocks(date: str, stock_codes: List[str], 
                           period: int = 8, ma_type: str = "tma") -> pd.DataFrame:
     """
@@ -147,11 +170,7 @@ def filter_bullish_stocks(date: str, stock_codes: List[str],
             last_row = occ_df.iloc[-1]
 
             # 缓存 OCC 偏离度到数据库
-            occ_open = last_row['occ_open']
-            occ_close = last_row['occ_close']
-            if occ_open > 0:
-                occ_pct = (occ_close - occ_open) / occ_open * 1000
-                save_indicator(code, date, OCC_COLUMN, round(occ_pct))
+            _cache_occ_value(code, date, last_row['occ_open'], last_row['occ_close'])
 
             if last_row['trend_direction'] == 1:
                 results.append({

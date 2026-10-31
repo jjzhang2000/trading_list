@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.read_data import get_stock_price_before_date, save_indicator
+from data.read_data import get_stock_price_before_date, get_indicator, save_indicator
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -91,6 +91,29 @@ def get_stock_slope(stock_code: str, end_date: str, days: int = 150,
     return result
 
 
+def _cache_vp_value(stock_code: str, date: str, slope_short: float, close: float) -> Optional[int]:
+    """计算并缓存 VP 短期斜率占比（slope_short/close*1000，保留整数）。"""
+    if pd.notna(slope_short) and close > 0:
+        pct = int(round(slope_short / close * 1000))
+        save_indicator(stock_code, date, VP_COLUMN, pct)
+        return pct
+    return None
+
+
+def get_vp_value(stock_code: str, date: str) -> Optional[int]:
+    """获取 VP Slope 指标值（整数），优先读缓存，未命中则计算并缓存。"""
+    cached = get_indicator(stock_code, date, VP_COLUMN)
+    if cached is not None:
+        return cached
+
+    slope_df = get_stock_slope(stock_code, date, days=150)
+    if slope_df is None or slope_df.empty:
+        return None
+
+    last_row = slope_df.iloc[-1]
+    return _cache_vp_value(stock_code, date, last_row['slope_short'], last_row['close'])
+
+
 def filter_stocks_by_slope(date: str, stock_codes: List[str], 
                            period_long: int = 100, period_short: int = 10) -> pd.DataFrame:
     """
@@ -121,9 +144,7 @@ def filter_stocks_by_slope(date: str, stock_codes: List[str],
             last_row = slope_df.iloc[-1]
 
             # 缓存短期斜率占比到数据库
-            if pd.notna(last_row['slope_short']) and last_row['close'] > 0:
-                vp_pct = last_row['slope_short'] / last_row['close'] * 1000
-                save_indicator(code, date, VP_COLUMN, round(vp_pct))
+            _cache_vp_value(code, date, last_row['slope_short'], last_row['close'])
 
             if pd.notna(last_row['slope_long']) and last_row['slope_long'] > 0:
                 results.append({

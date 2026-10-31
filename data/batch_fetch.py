@@ -96,7 +96,7 @@ class BatchDataFetcher:
                             'date': fields[30] if len(fields) > 30 else '',
                             'time': fields[31] if len(fields) > 31 else ''
                         }
-                    except (ValueError, IndexError) as e:
+                    except (ValueError, IndexError):
                         continue
                 
                 if (i + batch_size) < total:

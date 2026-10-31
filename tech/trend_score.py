@@ -123,7 +123,7 @@ def main():
     df = rank_stocks_by_strength(test_codes, date)
 
     if not df.empty:
-        logger.info(f"\n排序结果:")
+        logger.info("\n排序结果:")
         for _, row in df.iterrows():
             logger.info(f"  {row['rank']}. {row['stock_code']} {row['stock_name']}: "
                         f"{row['strength_score']}分 "
